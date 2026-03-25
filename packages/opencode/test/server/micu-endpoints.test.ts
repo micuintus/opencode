@@ -108,7 +108,7 @@ describe("micuDAC — /session/:id/tool endpoint", () => {
 
         // Check that a ToolPart was created on the message
         const parts = await MessageV2.parts(msgID)
-        const ocParts = parts.filter((p) => p.type === "tool" && p.metadata?.oc === true)
+        const ocParts = parts.filter((p: any) => p.type === "tool" && p.metadata?.oc === true) as any[]
         expect(ocParts.length).toBe(1)
         expect(ocParts[0].tool).toBe("glob")
         expect(ocParts[0].state.status).toBe("completed")
@@ -135,7 +135,7 @@ describe("micuDAC — /session/:id/tool endpoint", () => {
 
         // No oc ToolParts should be created
         const parts = await MessageV2.parts(msgID)
-        const ocParts = parts.filter((p) => p.type === "tool" && p.metadata?.oc === true)
+        const ocParts = parts.filter((p: any) => p.type === "tool" && p.metadata?.oc === true) as any[]
         expect(ocParts.length).toBe(0)
 
         await Session.remove(session.id)

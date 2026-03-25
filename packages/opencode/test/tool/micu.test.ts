@@ -292,7 +292,7 @@ describe("micu", () => {
     })
 
     test("non-oc part has no oc marker", () => {
-      const normalPart = { type: "tool", metadata: undefined, state: { status: "completed" } }
+      const normalPart = { type: "tool", metadata: undefined as any, state: { status: "completed" } }
       expect(normalPart.metadata?.oc).toBeUndefined()
     })
   })

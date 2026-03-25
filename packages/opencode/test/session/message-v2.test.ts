@@ -1001,13 +1001,13 @@ describe("session.message-v2.toModelMessage — micuDAC oc filter", () => {
     // Assistant message should have text + one tool-call (normal bash, NOT oc parts)
     const assistant = result[1]
     expect(assistant.role).toBe("assistant")
-    const toolCalls = assistant.content.filter((p: any) => p.type === "tool-call")
+    const toolCalls = (assistant.content as any[]).filter((p: any) => p.type === "tool-call")
     expect(toolCalls.length).toBe(1)
     expect(toolCalls[0].toolCallId).toBe("call-normal")
 
     // Tool result message should only have normal bash result
     const toolResult = result[2]
-    const results = toolResult.content.filter((p: any) => p.type === "tool-result")
+    const results = (toolResult.content as any[]).filter((p: any) => p.type === "tool-result")
     expect(results.length).toBe(1)
     expect(results[0].toolCallId).toBe("call-normal")
   })
@@ -1046,7 +1046,7 @@ describe("session.message-v2.toModelMessage — micuDAC oc filter", () => {
     const result = MessageV2.toModelMessages(input, model)
     // user + assistant(tool-call) + tool-result = 3 messages
     expect(result.length).toBe(3)
-    const toolCalls = result[1].content.filter((p: any) => p.type === "tool-call")
+    const toolCalls = (result[1].content as any[]).filter((p: any) => p.type === "tool-call")
     expect(toolCalls.length).toBe(1)
     // The normal read tool should be present
     expect(toolCalls[0].toolCallId).toBe("call-1")
@@ -1075,7 +1075,7 @@ describe("session.message-v2.toModelMessage — micuDAC oc filter", () => {
 
     const result = MessageV2.toModelMessages(input, model)
     // assistant message should only have the one normal tool-call
-    const toolCalls = result[1].content.filter((p: any) => p.type === "tool-call")
+    const toolCalls = (result[1].content as any[]).filter((p: any) => p.type === "tool-call")
     expect(toolCalls.length).toBe(1)
     expect(toolCalls[0].toolCallId).toBe("c3")
   })

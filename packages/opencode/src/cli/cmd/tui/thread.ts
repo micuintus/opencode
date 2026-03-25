@@ -13,6 +13,7 @@ import type { Event } from "@opencode-ai/sdk/v2"
 import type { EventSource } from "./context/sdk"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
 import { TuiConfig } from "@/config/tui"
+import { Server } from "@/server/server"
 import { Instance } from "@/project/instance"
 import { writeHeapSnapshot } from "v8"
 
@@ -183,9 +184,16 @@ export const TuiThreadCommand = cmd({
         network.port !== 0 ||
         network.hostname !== "127.0.0.1"
 
+      // Always start a real HTTP server for oc callbacks (micuDAC).
+      // In internal mode, TUI still uses RPC for its own communication,
+      // but oc needs a real HTTP endpoint to call back into.
+      const serverResult = await client.call("server", { ...network, port: network.port || 0, hostname: network.hostname || "127.0.0.1" })
+      // Set Server.url in main process so bash tool can inject it into oc env vars
+      Server.url = new URL(serverResult.url)
+
       const transport = external
         ? {
-            url: (await client.call("server", network)).url,
+            url: serverResult.url,
             fetch: undefined,
             events: undefined,
           }
