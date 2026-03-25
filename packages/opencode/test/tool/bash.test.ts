@@ -400,4 +400,91 @@ describe("tool.bash truncation", () => {
       },
     })
   })
+
+  // micuDAC: oc env var injection
+  describe("micuDAC env vars", () => {
+    test("OPENCODE_SESSION_ID is injected into bash subprocess", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          const result = await bash.execute({ command: 'echo "$OPENCODE_SESSION_ID"', timeout: 5000, description: "test" }, ctx)
+          expect(result.output.trim()).toBe("ses_test")
+        },
+      })
+    })
+
+    test("OPENCODE_AGENT is injected into bash subprocess", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          const result = await bash.execute({ command: 'echo "$OPENCODE_AGENT"', timeout: 5000, description: "test" }, ctx)
+          expect(result.output.trim()).toBe("build")
+        },
+      })
+    })
+
+    test("OPENCODE_MESSAGE_ID is injected into bash subprocess", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          const ctxWithMsg = { ...ctx, messageID: MessageID.make("msg_test123") }
+          const result = await bash.execute({ command: 'echo "$OPENCODE_MESSAGE_ID"', timeout: 5000, description: "test" }, ctxWithMsg)
+          expect(result.output.trim()).toBe("msg_test123")
+        },
+      })
+    })
+
+    test("oc is on PATH inside bash subprocess", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          const result = await bash.execute({ command: "which oc", timeout: 5000, description: "test" }, ctx)
+          expect(result.output.trim()).toContain("bin/oc")
+        },
+      })
+    })
+
+    test("OPENCODE_SERVER_URL is set (not empty) when Server.url exists", async () => {
+      const { Server } = await import("../../src/server/server")
+      // Simulate TUI setting Server.url
+      const prev = Server.url
+      Server.url = new URL("http://127.0.0.1:4096")
+      try {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const bash = await BashTool.init()
+            const result = await bash.execute({ command: 'echo "$OPENCODE_SERVER_URL"', timeout: 5000, description: "test" }, ctx)
+            expect(result.output.trim()).toBe("http://127.0.0.1:4096/")
+          },
+        })
+      } finally {
+        Server.url = prev
+      }
+    })
+
+    test("OPENCODE_SERVER_URL is empty when Server.url is undefined", async () => {
+      const { Server } = await import("../../src/server/server")
+      const prev = Server.url
+      // @ts-expect-error - simulate undefined
+      Server.url = undefined
+      try {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const bash = await BashTool.init()
+            const result = await bash.execute({ command: 'echo "URL=$OPENCODE_SERVER_URL"', timeout: 5000, description: "test" }, ctx)
+            // Empty string — oc will error, which is the bug we fixed in thread.ts
+            expect(result.output.trim()).toBe("URL=")
+          },
+        })
+      } finally {
+        Server.url = prev
+      }
+    })
+  })
 })
