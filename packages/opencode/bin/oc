@@ -18,7 +18,9 @@ DIR="$(cd "$(dirname "$0")" && pwd)"
 OC_BIN="$DIR/oc-native"
 [ ! -f "$OC_BIN" ] && OC_BIN="bun run $DIR/oc.ts"
 AGENT="${OPENCODE_AGENT:-build}"
-URL="$OPENCODE_SERVER_URL/session/$OPENCODE_SESSION_ID"
+# Strip trailing slash to prevent double-slash routing to web UI
+SERVER="${OPENCODE_SERVER_URL%/}"
+URL="$SERVER/session/$OPENCODE_SESSION_ID"
 
 # Auto-announce to stderr (visible in TUI bash block)
 _announce() {
