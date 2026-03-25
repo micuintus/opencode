@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-// oc — micuDAC (Model Integrated Command Utility for Deterministic Agent Control)
+// oc — DACMICU (Deterministic Agent Control by Model Instructed Command Umbrella)
 // Calls back into the running openCode instance from bash scripts.
 // Deterministic tool calls use the shell fast-path (bin/oc); this binary
 // handles complex operations: prompt, agent, todo, status, and tool fallback.
@@ -204,8 +204,44 @@ switch (cmd) {
     break
   }
 
+  case "check": {
+    // AI boolean via forced tool calling (StructuredOutput with toolChoice: required)
+    // Returns exit code 0 (true) or 1 (false) — for loop exit conditions
+    const input = await stdin()
+    const question = input ? `${input}\n\n${rest.join(" ")}` : rest.join(" ")
+    if (!question.trim()) { console.error("oc check: no question provided"); process.exit(1) }
+    announce(`check "${question.substring(0, 60)}"`)
+
+    const CHECK_SCHEMA = {
+      type: "object",
+      properties: {
+        reasoning: { type: "string", description: "Brief reasoning for your answer" },
+        result: { type: "boolean", description: "true if the answer is yes/affirmative, false otherwise" },
+      },
+      required: ["result"],
+    }
+
+    const body: any = {
+      prompt: question,
+      format: { type: "json_schema", schema: CHECK_SCHEMA },
+    }
+    if (messageID) body.messageID = messageID
+
+    try {
+      const response = await api("POST", `/session/${session}/exec`, body)
+      // The response is the structured output JSON from the StructuredOutput tool
+      const parsed = JSON.parse(response.trim())
+      const result = typeof parsed === "object" && parsed !== null ? parsed.result : parsed
+      process.exit(result === true ? 0 : 1)
+    } catch {
+      // Fallback: text matching
+      process.exit(1) // conservative: don't break the loop
+    }
+    break
+  }
+
   case "help": case "--help": case "-h":
-    console.log(`oc — micuDAC (Model Integrated Command Utility for Deterministic Agent Control)
+    console.log(`oc — DACMICU (Deterministic Agent Control by Model Instructed Command Umbrella)
 
 AI JUDGMENT (non-deterministic):
   oc prompt "question"                     AI response on stdout
@@ -221,6 +257,11 @@ DETERMINISTIC TOOLS:
   oc tool grep "pattern" [path]            Search → stdout
   oc tool glob "pattern" [path]            Find files → stdout
   oc tool batch                            Execute JSON tool calls from stdin
+
+BOOLEAN CHECK (for loop exit conditions):
+  oc check "question"                      AI boolean → exit code 0 (yes) or 1 (no)
+  npm test 2>&1 | oc check "tests pass?"   Piped context
+  Uses forced tool calling — API-enforced, not text matching.
 
 SUBAGENTS:
   oc agent <type> "prompt"                 Spawn subagent

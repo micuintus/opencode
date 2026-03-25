@@ -63,7 +63,7 @@ describe("micu", () => {
     test("--help prints usage", () => {
       const result = oc(["--help"])
       expect(result.status).toBe(0)
-      expect(result.stdout.toString()).toContain("micuDAC")
+      expect(result.stdout.toString()).toContain("DACMICU")
       expect(result.stdout.toString()).toContain("oc prompt")
       expect(result.stdout.toString()).toContain("oc tool")
     })
@@ -272,7 +272,7 @@ describe("micu", () => {
     test("bin/oc is executable", () => {
       const result = ocsh(["help"])
       expect(result.status).toBe(0)
-      expect(result.stdout.toString()).toContain("micuDAC")
+      expect(result.stdout.toString()).toContain("DACMICU")
     })
 
     test("bin/oc routes tool to fast path (if jq available)", () => {
@@ -295,6 +295,34 @@ describe("micu", () => {
     test("non-oc part has no oc marker", () => {
       const normalPart = { type: "tool", metadata: undefined as any, state: { status: "completed" } }
       expect(normalPart.metadata?.oc).toBeUndefined()
+    })
+  })
+
+  // ── oc check Tests ─────────────────────────────────────
+
+  describe("oc check subcommand", () => {
+    test("no question errors", () => {
+      const result = oc(["check"])
+      expect(result.status).not.toBe(0)
+      expect(result.stderr.toString()).toContain("no question")
+    })
+
+    test("sends to /exec with format (fails on HTTP, not parse)", () => {
+      const result = oc(["check", "Are tests passing?"])
+      expect(result.status).not.toBe(0)
+      // Should fail on HTTP connection, not argument parsing
+      expect(result.stderr.toString()).not.toContain("no question")
+    })
+
+    test("help text includes oc check", () => {
+      const result = oc(["help"])
+      expect(result.stdout.toString()).toContain("oc check")
+      expect(result.stdout.toString()).toContain("boolean")
+    })
+
+    test("help text says DACMICU", () => {
+      const result = oc(["help"])
+      expect(result.stdout.toString()).toContain("DACMICU")
     })
   })
 

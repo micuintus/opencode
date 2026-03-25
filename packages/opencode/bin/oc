@@ -1,5 +1,5 @@
 #!/usr/bin/env sh
-# oc — micuDAC shell wrapper
+# oc — DACMICU shell wrapper
 # Fast path: oc tool read/glob/grep use curl directly (~5ms)
 # Full path: oc prompt/agent/todo use compiled bun binary (~40ms)
 set -e

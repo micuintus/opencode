@@ -1097,6 +1097,10 @@ export const SessionRoutes = lazy(() =>
             .array(z.object({ filename: z.string(), mime: z.string(), url: z.string() }))
             .optional()
             .describe("File attachments (PDFs, images) for multimodal prompts"),
+          format: z
+            .object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.any()) })
+            .optional()
+            .describe("Force structured output via StructuredOutput tool (e.g. for oc check boolean)"),
           messageID: z.string().optional().describe("Parent message ID — creates visual ToolPart when present"),
         }),
       ),
@@ -1192,9 +1196,16 @@ export const SessionRoutes = lazy(() =>
               system: body.system,
               agent: body.agent,
               model,
+              format: body.format ? { ...body.format, retryCount: 3 } : undefined,
             })
-            const text = msg.parts.findLast((p) => p.type === "text")
-            const responseText = text && "text" in text ? text.text : ""
+            // For structured output (oc check), return the JSON; otherwise return text
+            let responseText: string
+            if (body.format && (msg.info as any).structured !== undefined) {
+              responseText = JSON.stringify((msg.info as any).structured)
+            } else {
+              const text = msg.parts.findLast((p) => p.type === "text")
+              responseText = text && "text" in text ? text.text : ""
+            }
 
             if (parentMessageID && partID) {
               await Session.updatePart({
