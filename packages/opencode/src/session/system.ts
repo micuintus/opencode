@@ -136,7 +136,7 @@ export namespace SystemPrompt {
         `</oc-examples>`,
         ``,
         `Write oc scripts INLINE in the bash tool command parameter — oc environment variables are only available inside the bash tool.`,
-        `Set timeout: 600000 or higher for scripts using oc.`,
+        `Scripts using oc automatically get an extended timeout (30 minutes). No need to set timeout manually.`,
         `Verify before executing: loops terminate, oc syntax correct, errors handled.`,
         `If a script fails, fix the error and retry. If a permission is denied, skip the item gracefully.`,
         `These are composable primitives — combine freely. For complex calculations, python3 or bun work too.`,

@@ -81,7 +81,10 @@ export const BashTool = Tool.define("bash", async () => {
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
-      const timeout = params.timeout ?? DEFAULT_TIMEOUT
+      // Auto-extend timeout for oc scripts — Ralph loops and batch operations
+      // should not be killed by a 2-minute default timeout
+      const usesOc = /\boc\s+(tool|prompt|agent|todo|status)\b/.test(params.command)
+      const timeout = params.timeout ?? (usesOc ? 30 * 60 * 1000 : DEFAULT_TIMEOUT)
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")

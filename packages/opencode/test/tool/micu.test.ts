@@ -298,6 +298,25 @@ describe("micu", () => {
     })
   })
 
+  // ── Timeout Detection Tests ─────────────────────────────
+
+  describe("oc auto-timeout", () => {
+    test("oc regex detects oc tool commands", () => {
+      const regex = /\boc\s+(tool|prompt|agent|todo|status)\b/
+      expect(regex.test('oc tool read "$f"')).toBe(true)
+      expect(regex.test('oc prompt "summarize"')).toBe(true)
+      expect(regex.test('oc agent explore "task"')).toBe(true)
+      expect(regex.test('oc todo add "item"')).toBe(true)
+      expect(regex.test('oc status "progress"')).toBe(true)
+      expect(regex.test('echo "hello"')).toBe(false)
+      expect(regex.test('npm test')).toBe(false)
+      expect(regex.test('git log --oneline')).toBe(false)
+      // Should not match partial words
+      expect(regex.test('echo "doc tool"')).toBe(false)
+      expect(regex.test('ocelot prompt')).toBe(false)
+    })
+  })
+
   // ── Regression Tests ──────────────────────────────────────
 
   describe("regression", () => {
