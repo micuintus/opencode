@@ -1309,7 +1309,14 @@ export const SessionRoutes = lazy(() =>
                 },
               })
             }
-            await stream.write(result.output)
+            // Binary file pass-through: when tool returns file attachments (PDFs, images),
+            // append file path reference so downstream oc prompt can process them multimodally.
+            // Uses null bytes as delimiters — impossible to collide with text content.
+            let output = result.output
+            if (result.attachments?.length && body.args?.filePath) {
+              output += `\n\x00OC_FILE\x00:${body.args.filePath}`
+            }
+            await stream.write(output)
           } catch (error) {
             if (parentMessageID && partID) {
               await Session.updatePart({
