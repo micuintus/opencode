@@ -467,6 +467,22 @@ describe("tool.bash truncation", () => {
       }
     })
 
+    test("Server.url gets actual port, not 0, after listen()", async () => {
+      const { Server } = await import("../../src/server/server")
+      // When port 0 is requested, the OS assigns a random port.
+      // Server.url must reflect the actual port, not 0.
+      const prev = Server.url
+      try {
+        const server = Server.listen({ port: 0, hostname: "127.0.0.1" })
+        expect(Server.url).toBeDefined()
+        expect(Server.url.port).not.toBe("0")
+        expect(parseInt(Server.url.port)).toBeGreaterThan(0)
+        await server.stop(true)
+      } finally {
+        Server.url = prev
+      }
+    })
+
     test("OPENCODE_SERVER_URL is empty when Server.url is undefined", async () => {
       const { Server } = await import("../../src/server/server")
       const prev = Server.url
