@@ -21,6 +21,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Bus } from "../../bus"
 import { NamedError } from "@opencode-ai/util/error"
+import { ToolRegistry } from "../../tool/registry"
 
 const log = Log.create({ service: "server" })
 
@@ -1026,6 +1027,147 @@ export const SessionRoutes = lazy(() =>
           reply: c.req.valid("json").response,
         })
         return c.json(true)
+      },
+    )
+    // micuDAC: AI judgment via child session
+    .post(
+      "/:sessionID/exec",
+      describeRoute({
+        summary: "Execute AI prompt",
+        description:
+          "Create a child session, send a prompt, wait for the AI response, and return the assistant's text. Designed for bash script callbacks via the oc CLI.",
+        operationId: "session.exec",
+        responses: {
+          200: {
+            description: "AI response as plain text",
+            content: { "text/plain": { schema: resolver(z.string()) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator(
+        "json",
+        z.object({
+          prompt: z.string().describe("The prompt text to send to the AI"),
+          system: z.string().optional().describe("Custom system prompt for specialist creation"),
+          agent: z.string().optional().describe("Agent type"),
+          model: z.object({ providerID: ProviderID.zod, modelID: ModelID.zod }).optional().describe("Model override"),
+          files: z
+            .array(z.object({ filename: z.string(), mime: z.string(), url: z.string() }))
+            .optional()
+            .describe("File attachments (PDFs, images) for multimodal prompts"),
+        }),
+      ),
+      async (c) => {
+        const parent = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+
+        await Session.get(parent)
+
+        // Inherit model from parent session if not explicitly provided
+        let model = body.model
+        if (!model) {
+          for await (const item of MessageV2.stream(parent)) {
+            if (item.info.role === "user" && item.info.model) {
+              model = item.info.model
+              break
+            }
+          }
+        }
+
+        const child = await Session.create({
+          parentID: parent,
+          title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
+        })
+
+        c.status(200)
+        c.header("Content-Type", "text/plain")
+        return stream(c, async (stream) => {
+          const cleanup = () => SessionPrompt.cancel(child.id)
+          c.req.raw.signal.addEventListener("abort", cleanup)
+          try {
+            const parts: any[] = [{ type: "text", text: body.prompt }]
+            if (body.files?.length) {
+              for (const file of body.files) {
+                parts.push({ type: "file", mime: file.mime, url: file.url, filename: file.filename })
+              }
+            }
+            const msg = await SessionPrompt.prompt({
+              sessionID: child.id,
+              parts,
+              system: body.system,
+              agent: body.agent,
+              model,
+            })
+            const text = msg.parts.findLast((p) => p.type === "text")
+            await stream.write(text && "text" in text ? text.text : "")
+          } finally {
+            c.req.raw.signal.removeEventListener("abort", cleanup)
+          }
+        })
+      },
+    )
+    // micuDAC: Direct tool execution — no LLM, deterministic
+    .post(
+      "/:sessionID/tool",
+      describeRoute({
+        summary: "Execute tool directly",
+        description:
+          "Execute an openCode tool directly without LLM involvement. Deterministic operations from bash scripts via the oc CLI.",
+        operationId: "session.tool",
+        responses: {
+          200: {
+            description: "Tool output as plain text",
+            content: { "text/plain": { schema: resolver(z.string()) } },
+          },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator(
+        "json",
+        z.object({
+          name: z.string().describe("Tool name (e.g. read, edit, grep, glob)"),
+          args: z.record(z.string(), z.any()).describe("Tool arguments"),
+          agent: z.string().optional().describe("Agent context for permissions"),
+        }),
+      ),
+      async (c) => {
+        const param = c.req.valid("param")
+        const body = c.req.valid("json")
+        const tool = await ToolRegistry.get(body.name)
+        if (!tool) return c.text(`Tool not found: ${body.name}`, 404)
+
+        const session = await Session.get(param.sessionID)
+        const name = body.agent ?? "build"
+        const agent = await Agent.get(name)
+        const ctx = {
+          sessionID: param.sessionID,
+          messageID: MessageID.ascending(),
+          agent: name,
+          abort: c.req.raw.signal,
+          messages: [] as MessageV2.WithParts[],
+          metadata: () => {},
+          async ask(req: Omit<Permission.Request, "id" | "sessionID" | "tool">) {
+            await Permission.ask({
+              ...req,
+              sessionID: param.sessionID,
+              ruleset: Permission.merge(agent?.permission ?? [], session.permission ?? []),
+            })
+          },
+        }
+
+        c.status(200)
+        c.header("Content-Type", "text/plain")
+        return stream(c, async (stream) => {
+          try {
+            const result = await tool.execute(body.args, ctx)
+            await stream.write(result.output)
+          } catch (error) {
+            await stream.write(`Error: ${error instanceof Error ? error.message : String(error)}`)
+          }
+        })
       },
     ),
 )

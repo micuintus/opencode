@@ -19,7 +19,7 @@ import path from "path"
 import { type ToolContext as PluginToolContext, type ToolDefinition } from "@opencode-ai/plugin"
 import z from "zod"
 import { Plugin } from "../plugin"
-import { ProviderID, type ModelID } from "../provider/schema"
+import { ProviderID, ModelID } from "../provider/schema"
 import { WebSearchTool } from "./websearch"
 import { CodeSearchTool } from "./codesearch"
 import { Flag } from "@/flag/flag"
@@ -216,5 +216,11 @@ export namespace ToolRegistry {
     agent?: Agent.Info,
   ) {
     return runPromise((svc) => svc.tools(model, agent))
+  }
+
+  /** Look up a tool by ID. Returns the initialized tool or undefined. Same approach as batch.ts. */
+  export async function get(id: string) {
+    const allTools = await tools({ providerID: ProviderID.make(""), modelID: ModelID.make("") })
+    return allTools.find((t) => t.id === id)
   }
 }

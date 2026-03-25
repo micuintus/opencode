@@ -1,0 +1,93 @@
+#!/usr/bin/env sh
+# oc — micuDAC shell wrapper
+# Fast path: oc tool read/glob/grep use curl directly (~5ms)
+# Full path: oc prompt/agent/todo use compiled bun binary (~40ms)
+set -e
+
+# Env validation
+if [ -z "$OPENCODE_SERVER_URL" ]; then
+  echo "oc: OPENCODE_SERVER_URL not set — are you running inside an openCode bash tool?" >&2
+  exit 1
+fi
+if [ -z "$OPENCODE_SESSION_ID" ]; then
+  echo "oc: OPENCODE_SESSION_ID not set — are you running inside an openCode bash tool?" >&2
+  exit 1
+fi
+
+DIR="$(cd "$(dirname "$0")" && pwd)"
+OC_BIN="$DIR/oc-native"
+[ ! -f "$OC_BIN" ] && OC_BIN="bun run $DIR/oc.ts"
+AGENT="${OPENCODE_AGENT:-build}"
+URL="$OPENCODE_SERVER_URL/session/$OPENCODE_SESSION_ID"
+
+# Auto-announce to stderr (visible in TUI bash block)
+_announce() {
+  [ "$OPENCODE_QUIET" = "1" ] && return
+  printf '\033[2m[oc] %s\033[0m\n' "$1" >&2
+}
+
+# JSON-encode a string (requires jq)
+_json() {
+  printf '%s' "$1" | jq -Rs .
+}
+
+# Build tool request JSON body
+_tool_body() {
+  local name="$1" args_json="$2"
+  local body="{\"name\":$(_json "$name"),\"args\":$args_json,\"agent\":$(_json "$AGENT")"
+  [ -n "$OPENCODE_MESSAGE_ID" ] && body="$body,\"messageID\":$(_json "$OPENCODE_MESSAGE_ID")"
+  body="$body}"
+  printf '%s' "$body"
+}
+
+# POST to /tool endpoint
+_tool_call() {
+  local name="$1" args_json="$2"
+  curl -sS -X POST "$URL/tool" \
+    -H "Content-Type: application/json" \
+    -H "x-opencode-directory: $PWD" \
+    -d "$(_tool_body "$name" "$args_json")"
+}
+
+case "$1" in
+  tool)
+    shift
+    subcmd="$1"; shift 2>/dev/null || true
+
+    # Check if jq is available for the fast path
+    if command -v jq >/dev/null 2>&1; then
+      case "$subcmd" in
+        read)
+          _announce "tool read ${1:-}"
+          _tool_call "read" "{\"filePath\":$(_json "$1")}"
+          exit $?
+          ;;
+        glob)
+          _announce "tool glob ${1:-} ${2:-}"
+          local_args="{\"pattern\":$(_json "$1")"
+          [ -n "$2" ] && local_args="$local_args,\"path\":$(_json "$2")"
+          local_args="$local_args}"
+          _tool_call "glob" "$local_args"
+          exit $?
+          ;;
+        grep)
+          _announce "tool grep ${1:-} ${2:-}"
+          _tool_call "grep" "{\"pattern\":$(_json "$1"),\"path\":$(_json "${2:-.}")}"
+          exit $?
+          ;;
+      esac
+    fi
+
+    # Fall through to full binary for complex tools or when jq unavailable
+    exec $OC_BIN tool "$subcmd" "$@"
+    ;;
+
+  # Everything else goes to the full binary
+  prompt|agent|todo|status|help|--help|-h)
+    exec $OC_BIN "$@"
+    ;;
+
+  *)
+    exec $OC_BIN "$@"
+    ;;
+esac

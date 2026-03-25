@@ -665,11 +665,9 @@ export const RunCommand = cmd({
     }
 
     await bootstrap(process.cwd(), async () => {
-      const fetchFn = (async (input: RequestInfo | URL, init?: RequestInit) => {
-        const request = new Request(input, init)
-        return Server.Default().fetch(request)
-      }) as typeof globalThis.fetch
-      const sdk = createOpencodeClient({ baseUrl: "http://opencode.internal", fetch: fetchFn })
+      // Start HTTP server on random port so oc callbacks work in headless mode
+      const server = Server.listen({ port: 0, hostname: "127.0.0.1" })
+      const sdk = createOpencodeClient({ baseUrl: server.url.toString(), directory })
       await execute(sdk)
     })
   },

@@ -17,6 +17,7 @@ import { Shell } from "@/shell/shell"
 import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncate"
 import { Plugin } from "@/plugin"
+import { Server } from "@/server/server"
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -170,6 +171,12 @@ export const BashTool = Tool.define("bash", async () => {
         env: {
           ...process.env,
           ...shellEnv.env,
+          // micuDAC: Enable oc callbacks into the running openCode instance
+          OPENCODE_SESSION_ID: ctx.sessionID,
+          OPENCODE_MESSAGE_ID: ctx.messageID,
+          OPENCODE_AGENT: ctx.agent,
+          OPENCODE_SERVER_URL: Server.url?.toString() ?? "",
+          PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
