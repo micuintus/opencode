@@ -1057,6 +1057,7 @@ export const SessionRoutes = lazy(() =>
             .array(z.object({ filename: z.string(), mime: z.string(), url: z.string() }))
             .optional()
             .describe("File attachments (PDFs, images) for multimodal prompts"),
+          messageID: z.string().optional().describe("Parent message ID — creates visual ToolPart when present"),
         }),
       ),
       async (c) => {
@@ -1081,28 +1082,121 @@ export const SessionRoutes = lazy(() =>
           title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
         })
 
+        // Create task ToolPart for subagent visibility (opt-in via messageID)
+        const parentMessageID = body.messageID as MessageID | undefined
+        const partID = parentMessageID ? PartID.ascending() : undefined
+        const startTime = Date.now()
+        const promptPreview = body.prompt.substring(0, 80) + (body.prompt.length > 80 ? "..." : "")
+
+        if (parentMessageID && partID) {
+          await Session.updatePart({
+            id: partID,
+            messageID: parentMessageID,
+            sessionID: parent,
+            type: "tool",
+            tool: "task",
+            callID: partID,
+            metadata: { oc: true },
+            state: {
+              status: "running",
+              input: { prompt: promptPreview, description: promptPreview, subagent_type: "oc" },
+              title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
+              metadata: { sessionId: child.id, model },
+              time: { start: startTime },
+            },
+          })
+        }
+
         c.status(200)
         c.header("Content-Type", "text/plain")
         return stream(c, async (stream) => {
           const cleanup = () => SessionPrompt.cancel(child.id)
           c.req.raw.signal.addEventListener("abort", cleanup)
+
+          // Stream child session's text to parent ToolPart in real-time
+          let streamedText = ""
+          const unsub = parentMessageID && partID
+            ? Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
+                if (event.properties.sessionID === child.id && event.properties.field === "text") {
+                  streamedText += event.properties.delta
+                  Session.updatePart({
+                    id: partID,
+                    messageID: parentMessageID,
+                    sessionID: parent,
+                    type: "tool",
+                    tool: "task",
+                    callID: partID,
+                    metadata: { oc: true },
+                    state: {
+                      status: "running",
+                      input: { prompt: promptPreview },
+                      title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
+                      metadata: { sessionId: child.id, model, output: streamedText.substring(0, 2000) },
+                      time: { start: startTime },
+                    },
+                  })
+                }
+              })
+            : undefined
+
           try {
-            const parts: any[] = [{ type: "text", text: body.prompt }]
+            const promptParts: any[] = [{ type: "text", text: body.prompt }]
             if (body.files?.length) {
               for (const file of body.files) {
-                parts.push({ type: "file", mime: file.mime, url: file.url, filename: file.filename })
+                promptParts.push({ type: "file", mime: file.mime, url: file.url, filename: file.filename })
               }
             }
             const msg = await SessionPrompt.prompt({
               sessionID: child.id,
-              parts,
+              parts: promptParts,
               system: body.system,
               agent: body.agent,
               model,
             })
             const text = msg.parts.findLast((p) => p.type === "text")
-            await stream.write(text && "text" in text ? text.text : "")
+            const responseText = text && "text" in text ? text.text : ""
+
+            if (parentMessageID && partID) {
+              await Session.updatePart({
+                id: partID,
+                messageID: parentMessageID,
+                sessionID: parent,
+                type: "tool",
+                tool: "task",
+                callID: partID,
+                metadata: { oc: true },
+                state: {
+                  status: "completed",
+                  input: { prompt: promptPreview },
+                  output: responseText.substring(0, 2000),
+                  title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
+                  metadata: { sessionId: child.id, model },
+                  time: { start: startTime, end: Date.now() },
+                },
+              })
+            }
+            await stream.write(responseText)
+          } catch (error) {
+            if (parentMessageID && partID) {
+              await Session.updatePart({
+                id: partID,
+                messageID: parentMessageID,
+                sessionID: parent,
+                type: "tool",
+                tool: "task",
+                callID: partID,
+                metadata: { oc: true },
+                state: {
+                  status: "error",
+                  input: { prompt: promptPreview },
+                  error: error instanceof Error ? error.message : String(error),
+                  time: { start: startTime, end: Date.now() },
+                },
+              })
+            }
+            throw error
           } finally {
+            unsub?.()
             c.req.raw.signal.removeEventListener("abort", cleanup)
           }
         })
@@ -1131,6 +1225,7 @@ export const SessionRoutes = lazy(() =>
           name: z.string().describe("Tool name (e.g. read, edit, grep, glob)"),
           args: z.record(z.string(), z.any()).describe("Tool arguments"),
           agent: z.string().optional().describe("Agent context for permissions"),
+          messageID: z.string().optional().describe("Parent message ID — creates visual ToolParts when present"),
         }),
       ),
       async (c) => {
@@ -1140,15 +1235,47 @@ export const SessionRoutes = lazy(() =>
         if (!tool) return c.text(`Tool not found: ${body.name}`, 404)
 
         const session = await Session.get(param.sessionID)
-        const name = body.agent ?? "build"
-        const agent = await Agent.get(name)
+        const agentName = body.agent ?? "build"
+        const agent = await Agent.get(agentName)
+
+        // Create visual ToolPart when messageID provided (opt-in from bash context)
+        const parentMessageID = body.messageID as MessageID | undefined
+        const partID = parentMessageID ? PartID.ascending() : undefined
+        const startTime = Date.now()
+
+        if (parentMessageID && partID) {
+          await Session.updatePart({
+            id: partID,
+            messageID: parentMessageID,
+            sessionID: param.sessionID,
+            type: "tool",
+            tool: body.name,
+            callID: partID,
+            metadata: { oc: true },
+            state: { status: "running", input: body.args, time: { start: startTime } },
+          })
+        }
+
         const ctx = {
           sessionID: param.sessionID,
-          messageID: MessageID.ascending(),
-          agent: name,
+          messageID: parentMessageID ?? MessageID.ascending(),
+          agent: agentName,
           abort: c.req.raw.signal,
           messages: [] as MessageV2.WithParts[],
-          metadata: () => {},
+          metadata: parentMessageID && partID
+            ? async (val: { title?: string; metadata?: any }) => {
+                await Session.updatePart({
+                  id: partID,
+                  messageID: parentMessageID,
+                  sessionID: param.sessionID,
+                  type: "tool",
+                  tool: body.name,
+                  callID: partID,
+                  metadata: { oc: true },
+                  state: { status: "running", input: body.args, title: val.title, metadata: val.metadata, time: { start: startTime } },
+                })
+              }
+            : () => {},
           async ask(req: Omit<Permission.Request, "id" | "sessionID" | "tool">) {
             await Permission.ask({
               ...req,
@@ -1163,8 +1290,44 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async (stream) => {
           try {
             const result = await tool.execute(body.args, ctx)
+            if (parentMessageID && partID) {
+              await Session.updatePart({
+                id: partID,
+                messageID: parentMessageID,
+                sessionID: param.sessionID,
+                type: "tool",
+                tool: body.name,
+                callID: partID,
+                metadata: { oc: true },
+                state: {
+                  status: "completed",
+                  input: body.args,
+                  output: result.output,
+                  title: result.title ?? "",
+                  metadata: result.metadata ?? {},
+                  time: { start: startTime, end: Date.now() },
+                },
+              })
+            }
             await stream.write(result.output)
           } catch (error) {
+            if (parentMessageID && partID) {
+              await Session.updatePart({
+                id: partID,
+                messageID: parentMessageID,
+                sessionID: param.sessionID,
+                type: "tool",
+                tool: body.name,
+                callID: partID,
+                metadata: { oc: true },
+                state: {
+                  status: "error",
+                  input: body.args,
+                  error: error instanceof Error ? error.message : String(error),
+                  time: { start: startTime, end: Date.now() },
+                },
+              })
+            }
             await stream.write(`Error: ${error instanceof Error ? error.message : String(error)}`)
           }
         })

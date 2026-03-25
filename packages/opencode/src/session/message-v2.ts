@@ -695,6 +695,8 @@ export namespace MessageV2 {
               type: "step-start",
             })
           if (part.type === "tool") {
+            // Skip oc-injected Parts — they have no corresponding tool_use from the LLM
+            if (part.metadata?.oc) continue
             toolNames.add(part.tool)
             if (part.state.status === "completed") {
               const outputText = part.state.time.compacted ? "[Old tool result content cleared]" : part.state.output
