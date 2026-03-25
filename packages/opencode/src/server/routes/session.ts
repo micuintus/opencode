@@ -189,6 +189,46 @@ export const SessionRoutes = lazy(() =>
       },
     )
     .post(
+      "/:sessionID/todo",
+      describeRoute({
+        summary: "Create session todo",
+        description: "Create a new todo item for the session.",
+        operationId: "session.todo.create",
+        responses: {
+          200: { description: "Created todo", content: { "application/json": { schema: resolver(Todo.Info) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", z.object({ content: z.string(), status: z.string().optional(), priority: z.string().optional() })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        const todo = Todo.add(sessionID, body)
+        return c.json(todo)
+      },
+    )
+    .put(
+      "/:sessionID/todo",
+      describeRoute({
+        summary: "Update session todos",
+        description: "Replace all todos for a session (bulk update).",
+        operationId: "session.todo.update",
+        responses: {
+          200: { description: "Updated todos", content: { "application/json": { schema: resolver(Todo.Info.array()) } } },
+          ...errors(400, 404),
+        },
+      }),
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", z.object({ todos: z.array(Todo.Info) })),
+      async (c) => {
+        const sessionID = c.req.valid("param").sessionID
+        const body = c.req.valid("json")
+        Todo.update({ sessionID, todos: body.todos })
+        return c.json(body.todos)
+      },
+    )
+    .post(
       "/",
       describeRoute({
         summary: "Create session",

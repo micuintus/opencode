@@ -54,4 +54,28 @@ export namespace Todo {
       priority: row.priority,
     }))
   }
+
+  /** O(1) add — direct INSERT instead of delete-all + insert-all */
+  export function add(sessionID: SessionID, todo: Partial<Info> & { content: string }) {
+    const current = get(sessionID)
+    const newTodo: Info = {
+      content: todo.content,
+      status: todo.status ?? "pending",
+      priority: todo.priority ?? "medium",
+    }
+    Database.use((db) => {
+      db.insert(TodoTable)
+        .values({
+          session_id: sessionID,
+          content: newTodo.content,
+          status: newTodo.status,
+          priority: newTodo.priority,
+          position: current.length,
+        })
+        .run()
+    })
+    const updated = [...current, newTodo]
+    Bus.publish(Event.Updated, { sessionID, todos: updated })
+    return newTodo
+  }
 }
