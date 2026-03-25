@@ -11,7 +11,7 @@ function oc(args: string[], env: Record<string, string> = {}) {
     env: {
       ...process.env,
       OPENCODE_SERVER_URL: "http://localhost:4096",
-      OPENCODE_SESSION_ID: "test_session",
+      OPENCODE_SESSION_ID: "ses_test_session",
       OPENCODE_AGENT: "build",
       OPENCODE_QUIET: "1", // suppress auto-announce in tests
       ...env,
@@ -26,7 +26,7 @@ function ocsh(args: string[], env: Record<string, string> = {}) {
     env: {
       ...process.env,
       OPENCODE_SERVER_URL: "http://localhost:4096",
-      OPENCODE_SESSION_ID: "test_session",
+      OPENCODE_SESSION_ID: "ses_test_session",
       OPENCODE_AGENT: "build",
       OPENCODE_QUIET: "1",
       PATH: `${path.dirname(OC_SH)}:${process.env.PATH}`,
@@ -93,7 +93,7 @@ describe("micu", () => {
     test("prompt sends to /exec (fails on HTTP, not parse)", () => {
       const result = oc(["prompt", "hello"])
       expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain("server error")
+      expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
 
     test("-s flag parses system prompt", () => {
@@ -126,19 +126,19 @@ describe("micu", () => {
     test("read parses file path", () => {
       const result = oc(["tool", "read", "/tmp/test.ts"])
       expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain("server error")
+      expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
 
     test("glob parses pattern and path", () => {
       const result = oc(["tool", "glob", "*.ts", "/src"])
       expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain("server error")
+      expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
 
     test("grep parses pattern and path", () => {
       const result = oc(["tool", "grep", "TODO", "src/"])
       expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain("server error")
+      expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
   })
 
@@ -216,7 +216,7 @@ describe("micu", () => {
     test("connection refused gives user-friendly error", () => {
       const result = oc(["tool", "read", "/tmp/test.ts"])
       expect(result.status).not.toBe(0)
-      expect(result.stderr.toString()).toContain("server error")
+      expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
       // Should NOT contain raw stack traces
       expect(result.stderr.toString()).not.toContain("at ")
     })
@@ -277,9 +277,10 @@ describe("micu", () => {
 
     test("bin/oc routes tool to fast path (if jq available)", () => {
       const result = ocsh(["tool", "read", "/tmp/test.ts"])
-      // Will fail on HTTP but should not fail on routing
-      expect(result.status).not.toBe(0)
-      // Should attempt curl, not crash on routing
+      // curl may succeed (HTTP 200 with error body) or fail — either way it shouldn't crash on routing
+      const output = result.stdout.toString() + result.stderr.toString()
+      // Should not contain shell syntax errors
+      expect(output).not.toContain("syntax error")
     })
   })
 

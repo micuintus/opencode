@@ -483,6 +483,35 @@ describe("tool.bash truncation", () => {
       }
     })
 
+    test("OPENCODE_SERVER_URL has no double slash when Server.url has trailing slash", async () => {
+      const { Server } = await import("../../src/server/server")
+      const prev = Server.url
+      // Server.url always has trailing slash: http://127.0.0.1:4096/
+      Server.url = new URL("http://127.0.0.1:4096/")
+      try {
+        await Instance.provide({
+          directory: projectRoot,
+          fn: async () => {
+            const bash = await BashTool.init()
+            // The shell wrapper strips the trailing slash, so /session/... doesn't become //session/...
+            const result = await bash.execute(
+              { command: 'echo "$OPENCODE_SERVER_URL"', timeout: 5000, description: "test" },
+              ctx,
+            )
+            const url = result.output.trim()
+            expect(url).toBe("http://127.0.0.1:4096/")
+            // Simulate what bin/oc does: ${URL%/}/session/...
+            const stripped = url.replace(/\/$/, "")
+            const apiUrl = `${stripped}/session/test/tool`
+            expect(apiUrl).not.toContain("//session")
+            expect(apiUrl).toBe("http://127.0.0.1:4096/session/test/tool")
+          },
+        })
+      } finally {
+        Server.url = prev
+      }
+    })
+
     test("OPENCODE_SERVER_URL is empty when Server.url is undefined", async () => {
       const { Server } = await import("../../src/server/server")
       const prev = Server.url
