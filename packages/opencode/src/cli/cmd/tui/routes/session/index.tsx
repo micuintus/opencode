@@ -1570,6 +1570,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={props.part.tool === "skill"}>
           <Skill {...toolprops} />
         </Match>
+        <Match when={props.part.tool === "status"}>
+          <Status {...toolprops} />
+        </Match>
         <Match when={true}>
           <GenericTool {...toolprops} />
         </Match>
@@ -1621,6 +1624,16 @@ function GenericTool(props: ToolProps<any>) {
         </box>
       </BlockTool>
     </Show>
+  )
+}
+
+function Status(props: ToolProps<any>) {
+  const { theme } = useTheme()
+  const message = createMemo(() => (props.input as any)?.message ?? props.output ?? "")
+  return (
+    <text paddingLeft={3} fg={theme.textMuted}>
+      <span style={{ bold: true, fg: theme.accent }}>●</span> {message()}
+    </text>
   )
 }
 

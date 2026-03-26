@@ -1367,6 +1367,9 @@ export const SessionRoutes = lazy(() =>
             if (result.attachments?.length && body.args?.filePath) {
               output += `\n\x00OC_FILE\x00:${body.args.filePath}`
             }
+            if (result.metadata?.truncated) {
+              output += `\n\x00OC_TRUNCATED\x00:Results limited to ${result.metadata.count ?? "unknown"} items. Use a more specific pattern to get all results.`
+            }
             await stream.write(output)
           } catch (error) {
             if (parentMessageID && partID) {
@@ -1390,5 +1393,32 @@ export const SessionRoutes = lazy(() =>
           }
         })
       },
-    ),
+    )
+    // POST /session/:id/status — create a visible status ToolPart (used by oc status)
+    .post("/:sessionID/status", async (c) => {
+      const sessionID = c.req.param("sessionID") as SessionID
+      const body = (await c.req.json()) as { message: string; messageID?: string }
+      const parentMessageID = body.messageID as MessageID | undefined
+      if (parentMessageID && body.message) {
+        const partID = PartID.ascending()
+        await Session.updatePart({
+          id: partID,
+          messageID: parentMessageID,
+          sessionID,
+          type: "tool",
+          tool: "status",
+          callID: partID,
+          metadata: { oc: true },
+          state: {
+            status: "completed",
+            input: { message: body.message },
+            output: body.message,
+            title: "",
+            metadata: {},
+            time: { start: Date.now(), end: Date.now() },
+          },
+        })
+      }
+      return c.text("ok")
+    }),
 )

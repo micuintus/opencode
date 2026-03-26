@@ -60,6 +60,7 @@ async function stdin(): Promise<string> {
 }
 
 const OC_FILE_MARKER = "\x00OC_FILE\x00:"
+const OC_TRUNCATED_MARKER = "\x00OC_TRUNCATED\x00:"
 
 const [, , cmd, ...rest] = process.argv
 
@@ -145,7 +146,17 @@ switch (cmd) {
     }
     announce(`tool ${name} ${toolArgs[0]?.substring(0, 60) ?? ""}`)
     const result = await tool(name, args)
-    process.stdout.write(result)
+    // Filter out in-band metadata (null-byte protocol) — redirect to stderr
+    const lines = result.split("\n")
+    const dataLines: string[] = []
+    for (const line of lines) {
+      if (line.startsWith(OC_TRUNCATED_MARKER)) {
+        process.stderr.write(`\x1b[33m[oc] ${line.substring(OC_TRUNCATED_MARKER.length)}\x1b[0m\n`)
+      } else {
+        dataLines.push(line)
+      }
+    }
+    process.stdout.write(dataLines.join("\n"))
     break
   }
 
@@ -200,7 +211,16 @@ switch (cmd) {
   case "status": {
     const message = rest.join(" ")
     if (!message.trim()) { console.error("oc status: no message"); process.exit(1) }
-    process.stderr.write(`\x1b[1m[oc] ${message}\x1b[0m\n`)
+    announce(`status: ${message}`)
+    // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
+    const statusBody: any = { message }
+    if (messageID) statusBody.messageID = messageID
+    const statusUrl = new URL(`/session/${session}/status`, serverUrl).toString()
+    fetch(statusUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(statusBody),
+    }).catch(() => {})
     break
   }
 
