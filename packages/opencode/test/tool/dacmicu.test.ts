@@ -330,12 +330,14 @@ describe("DACMICU", () => {
 
   describe("oc auto-timeout", () => {
     test("oc regex detects oc tool commands", () => {
-      const regex = /\boc\s+(tool|prompt|agent|todo|status)\b/
+      const regex = /\boc\s+(tool|prompt|agent|todo|status|check)\b/
       expect(regex.test('oc tool read "$f"')).toBe(true)
       expect(regex.test('oc prompt "summarize"')).toBe(true)
       expect(regex.test('oc agent explore "task"')).toBe(true)
       expect(regex.test('oc todo add "item"')).toBe(true)
       expect(regex.test('oc status "progress"')).toBe(true)
+      expect(regex.test('oc check "any issues?"')).toBe(true)
+      expect(regex.test('while a=$(oc check "test"); do')).toBe(true)
       expect(regex.test('echo "hello"')).toBe(false)
       expect(regex.test('npm test')).toBe(false)
       expect(regex.test('git log --oneline')).toBe(false)

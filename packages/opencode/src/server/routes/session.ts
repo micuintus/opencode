@@ -1102,6 +1102,13 @@ export const SessionRoutes = lazy(() =>
             .optional()
             .describe("Force structured output via StructuredOutput tool (e.g. for oc check boolean)"),
           messageID: z.string().optional().describe("Parent message ID — creates visual ToolPart when present"),
+          followUp: z
+            .object({
+              prompt: z.string().describe("Follow-up prompt sent to the SAME child session after the main prompt completes"),
+              format: z.object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.any()) }),
+            })
+            .optional()
+            .describe("Same-session follow-up for cheap boolean evaluation (warm KV cache). Used by oc check grep pattern."),
         }),
       ),
       async (c) => {
@@ -1193,13 +1200,34 @@ export const SessionRoutes = lazy(() =>
               model,
               format: body.format ? { ...body.format, retryCount: 3 } : undefined,
             })
-            // For structured output (oc check), return the JSON; otherwise return text
+            // For structured output (oc check legacy), return the JSON; otherwise return text
             let responseText: string
             if (body.format && (msg.info as any).structured !== undefined) {
               responseText = JSON.stringify((msg.info as any).structured)
             } else {
               const text = msg.parts.findLast((p) => p.type === "text")
               responseText = text && "text" in text ? text.text : ""
+            }
+
+            // Same-session follow-up (oc check grep pattern): warm KV cache, ~40 tokens
+            if (body.followUp) {
+              try {
+                const followUpMsg = await SessionPrompt.prompt({
+                  sessionID: child.id,
+                  parts: [{ type: "text", text: body.followUp.prompt }],
+                  format: { ...body.followUp.format, retryCount: 1 },
+                  model,
+                })
+                const structured = (followUpMsg.info as any).structured
+                if (structured !== undefined) {
+                  responseText += `\n\x00OC_FOLLOWUP\x00:${JSON.stringify(structured)}`
+                } else {
+                  const fText = followUpMsg.parts.findLast((p: any) => p.type === "text")
+                  responseText += `\n\x00OC_FOLLOWUP\x00:${fText && "text" in fText ? fText.text : ""}`
+                }
+              } catch {
+                // Follow-up failed — oc.ts will fall back to text matching
+              }
             }
 
             await updateOcPart({

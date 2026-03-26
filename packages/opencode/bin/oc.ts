@@ -308,8 +308,12 @@ switch (cmd) {
   }
 
   case "check": {
-    // AI boolean via forced tool calling (StructuredOutput with toolChoice: required)
-    // Returns exit code 0 (true) or 1 (false) — for loop exit conditions
+    // grep pattern: detailed assessment on stdout, boolean on exit code.
+    // The agent investigates with full tool access (no json_schema constraint),
+    // then a same-session follow-up gets the boolean (warm KV cache, ~40 tokens).
+    //
+    // Usage in while-capture pattern:
+    //   while assessment=$(oc check "issues?"); do echo "$assessment" | oc prompt "fix"; done
     const input = await stdin()
     const question = input ? `${input}\n\n${rest.join(" ")}` : rest.join(" ")
     if (!question.trim()) {
@@ -318,36 +322,55 @@ switch (cmd) {
     }
     announce(`check "${question.substring(0, 60)}"`)
 
-    const CHECK_SCHEMA = {
+    const BOOL_SCHEMA = {
       type: "object",
       properties: {
-        reasoning: { type: "string", description: "Brief reasoning for your answer" },
-        result: { type: "boolean", description: "true if the answer is yes/affirmative, false otherwise" },
+        result: { type: "boolean", description: "true if the answer to the original question is yes/affirmative, false otherwise" },
       },
       required: ["result"],
     }
 
     const body: Record<string, unknown> = {
       prompt: question,
-      format: { type: "json_schema", schema: CHECK_SCHEMA },
+      // No format constraint — agent can use tools for full assessment
+      followUp: {
+        prompt: "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",
+        format: { type: "json_schema", schema: BOOL_SCHEMA },
+      },
     }
     if (msg_id) body.messageID = msg_id
 
+    const OC_FOLLOWUP = "\x00OC_FOLLOWUP\x00:"
+
     try {
       const response = await api("POST", `/session/${session}/exec`, body)
+
+      // Parse response: assessment text + follow-up boolean
+      const markerIdx = response.indexOf(OC_FOLLOWUP)
+      let assessment: string
       let result: boolean
-      try {
-        // Try structured JSON output first (model supports json_schema format)
-        const parsed = JSON.parse(response.trim())
-        result = typeof parsed === "object" && parsed !== null ? parsed.result : parsed === true
-      } catch {
-        // Model returned plain text — fallback to text matching
+
+      if (markerIdx !== -1) {
+        // Server returned follow-up: assessment + boolean
+        assessment = response.substring(0, markerIdx)
+        try {
+          const followUp = JSON.parse(response.substring(markerIdx + OC_FOLLOWUP.length))
+          result = followUp.result === true
+        } catch {
+          result = true // parse failed → conservative: assume yes, keep loop going
+        }
+      } else {
+        // No follow-up marker — fallback to text matching on response
+        assessment = response
         const lower = response.toLowerCase().trim()
         result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
       }
+
+      // grep pattern: findings to stdout, boolean to exit code
+      if (assessment.trim()) process.stdout.write(assessment.trimEnd() + "\n")
       process.exit(result === true ? 0 : 1)
     } catch (e) {
-      // HTTP/network error — exit 0 = "yes/affirmative" = conservative = keeps the loop going
+      // HTTP/network error — exit 0 = conservative = keeps the loop going
       console.error(`[oc] check error: ${e instanceof Error ? e.message : String(e)}`)
       process.exit(0)
     }
@@ -374,10 +397,12 @@ DETERMINISTIC TOOLS:
   oc tool glob "pattern" [path]            Find files → stdout
   oc tool batch                            Execute JSON tool calls from stdin
 
-BOOLEAN CHECK (for loop exit conditions):
-  oc check "question"                      AI boolean → exit code 0 (yes) or 1 (no)
-  npm test 2>&1 | oc check "tests pass?"   Piped context
-  Uses forced tool calling — API-enforced, not text matching.
+ASSESSMENT + BOOLEAN (grep pattern — findings on stdout, boolean on exit code):
+  oc check "question"                      Assessment → stdout, exit 0 (yes) / 1 (no)
+  data | oc check "question"               Piped context
+  while a=$(oc check "issues?"); do        Loop pattern: capture assessment,
+    echo "$a" | oc prompt "fix"            pipe findings to fixer
+  done
 
 SUBAGENTS:
   oc agent <type> "prompt"                 Spawn subagent

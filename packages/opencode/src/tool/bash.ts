@@ -83,7 +83,7 @@ export const BashTool = Tool.define("bash", async () => {
       }
       // DACMICU: oc scripts get NO timeout — Ralph loops can run for days.
       // The user aborts with Ctrl+C, not a timer.
-      const usesOc = /\boc\s+(tool|prompt|agent|todo|status)\b/.test(params.command)
+      const usesOc = /\boc\s+(tool|prompt|agent|todo|status|check)\b/.test(params.command)
       const timeout = usesOc ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
