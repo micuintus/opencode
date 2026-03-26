@@ -15,7 +15,7 @@ if (!session) {
   process.exit(1)
 }
 const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()
-const msg_id = process.env.OPENCODE_MESSAGE_ID
+const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 
 // Type definitions
@@ -61,7 +61,7 @@ async function api(method: string, path: string, body?: ApiRequestBody): Promise
 function toolBody(name: string, args: ToolArgs): ToolCallBody {
   const agent = process.env.OPENCODE_AGENT ?? "build"
   const body: ToolCallBody = { name, args, agent }
-  if (msg_id) body.messageID = msg_id
+  if (msg) body.messageID = msg
   return body
 }
 
@@ -122,7 +122,7 @@ async function handlePrompt(rest: string[]): Promise<void> {
   const body: ApiRequestBody = { prompt: text }
   if (system) body.system = system
   if (via) body.agent = via
-  if (msg_id) body.messageID = msg_id
+  if (msg) body.messageID = msg
   if (model) {
     const parts = model.split("/")
     if (parts.length < 2) {
@@ -191,11 +191,11 @@ async function handleCheck(rest: string[]): Promise<void> {
     // No format constraint — agent can use tools for full assessment.
     followUp: {
       prompt:
-        "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",
+        "Did your assessment find issues, problems, or items that need attention? Answer true if you found issues, false if everything is clean. Answer only with the structured output.",
       format: { type: "json_schema", schema: BOOL_SCHEMA },
     },
   }
-  if (msg_id) body.messageID = msg_id
+  if (msg) body.messageID = msg
 
   const OC_FOLLOWUP = "\x00OC_FOLLOWUP\x00:"
 
@@ -267,8 +267,8 @@ switch (cmd) {
         const fp = toolArgs[0]
         const params = { old: "", new: "" }
         for (let i = 1; i < toolArgs.length; i++) {
-          if (toolArgs[i] === "--old" || toolArgs[i] === "-o") params.old = toolArgs[++i]
-          if (toolArgs[i] === "--new" || toolArgs[i] === "-n") params.new = toolArgs[++i]
+          if ((toolArgs[i] === "--old" || toolArgs[i] === "-o") && i + 1 < toolArgs.length) params.old = toolArgs[++i]
+          if ((toolArgs[i] === "--new" || toolArgs[i] === "-n") && i + 1 < toolArgs.length) params.new = toolArgs[++i]
         }
         args = { filePath: fp, oldString: params.old, newString: params.new }
         break
@@ -327,7 +327,7 @@ switch (cmd) {
     }
     announce(`agent ${type} "${agentArgs.join(" ").substring(0, 50)}"`)
     const body: ApiRequestBody = { prompt: text, agent: type }
-    if (msg_id) body.messageID = msg_id
+    if (msg) body.messageID = msg
     const result = await api("POST", `/session/${session}/exec`, body)
     process.stdout.write(result)
     break
@@ -392,7 +392,7 @@ switch (cmd) {
     announce(`status: ${message}`)
     // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
     const body: ApiRequestBody = { message }
-    if (msg_id) body.messageID = msg_id
+    if (msg) body.messageID = msg
     fetch(new URL(`/session/${session}/status`, server).toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
