@@ -18,11 +18,27 @@ const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()
 const msg_id = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 
+// Type definitions
+interface ApiRequestBody {
+  [key: string]: string | number | boolean | object | undefined
+}
+
+interface ToolArgs {
+  [key: string]: string | number | boolean | object | undefined
+}
+
+interface ToolCallBody extends ApiRequestBody {
+  name: string
+  args: ToolArgs
+  agent: string
+  messageID?: string
+}
+
 function announce(label: string) {
   if (!quiet) process.stderr.write(`\x1b[2m[oc] ${label}\x1b[0m\n`)
 }
 
-async function api(method: string, path: string, body?: unknown): Promise<string> {
+async function api(method: string, path: string, body?: ApiRequestBody): Promise<string> {
   try {
     const res = await fetch(new URL(path, server).toString(), {
       method,
@@ -42,14 +58,14 @@ async function api(method: string, path: string, body?: unknown): Promise<string
   }
 }
 
-function toolBody(name: string, args: Record<string, unknown>): Record<string, unknown> {
+function toolBody(name: string, args: ToolArgs): ToolCallBody {
   const agent = process.env.OPENCODE_AGENT ?? "build"
-  const body: Record<string, unknown> = { name, args, agent }
+  const body: ToolCallBody = { name, args, agent }
   if (msg_id) body.messageID = msg_id
   return body
 }
 
-async function tool(name: string, args: Record<string, unknown>): Promise<string> {
+async function tool(name: string, args: ToolArgs): Promise<string> {
   return api("POST", `/session/${session}/tool`, toolBody(name, args))
 }
 
@@ -103,7 +119,7 @@ async function handlePrompt(rest: string[]): Promise<void> {
     process.exit(1)
   }
 
-  const body: Record<string, unknown> = { prompt: text }
+  const body: ApiRequestBody = { prompt: text }
   if (system) body.system = system
   if (via) body.agent = via
   if (msg_id) body.messageID = msg_id
@@ -169,9 +185,9 @@ async function handleCheck(rest: string[]): Promise<void> {
     required: ["result"],
   }
 
-  const body: Record<string, unknown> = {
-    // Frame as a bounded task — the caller handles iteration, this agent does ONE assessment.
-    prompt: `Complete the following assessment and report your findings. The caller handles iteration — do not create loops.\n\n${question}`,
+  const body: ApiRequestBody = {
+    // Frame as a bounded task — "report your findings" implies do it once and return.
+    prompt: `Complete the following assessment and report your findings:\n\n${question}`,
     // No format constraint — agent can use tools for full assessment.
     followUp: {
       prompt:
@@ -234,7 +250,7 @@ switch (cmd) {
       console.error("oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash")
       process.exit(1)
     }
-    let args: Record<string, unknown> = {}
+    let args: ToolArgs = {}
     switch (name) {
       case "read":
         args = {
@@ -310,7 +326,7 @@ switch (cmd) {
       process.exit(1)
     }
     announce(`agent ${type} "${agentArgs.join(" ").substring(0, 50)}"`)
-    const body: Record<string, unknown> = { prompt: text, agent: type }
+    const body: ApiRequestBody = { prompt: text, agent: type }
     if (msg_id) body.messageID = msg_id
     const result = await api("POST", `/session/${session}/exec`, body)
     process.stdout.write(result)
@@ -375,7 +391,7 @@ switch (cmd) {
     }
     announce(`status: ${message}`)
     // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
-    const body: Record<string, unknown> = { message }
+    const body: ApiRequestBody = { message }
     if (msg_id) body.messageID = msg_id
     fetch(new URL(`/session/${session}/status`, server).toString(), {
       method: "POST",
