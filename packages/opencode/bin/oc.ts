@@ -171,10 +171,8 @@ async function handleCheck(rest: string[]): Promise<void> {
 
   const body: Record<string, unknown> = {
     prompt: question,
-    // Subagent system prompt: do the work directly, don't write oc scripts (prevents recursion)
-    system:
-      "You are a subagent executing a specific task. Do the work directly using your tools (read, grep, edit, bash, glob). Do NOT write oc scripts or oc loops — you ARE inside one.",
-    // No format constraint — agent can use tools for full assessment
+    // No format constraint — agent can use tools for full assessment.
+    // Child sessions automatically skip oc-scripting rules (session.parentID suppresses them).
     followUp: {
       prompt:
         "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",

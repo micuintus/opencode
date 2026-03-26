@@ -25,7 +25,7 @@ export namespace SystemPrompt {
     return [PROMPT_DEFAULT]
   }
 
-  export async function environment(model: Provider.Model) {
+  export async function environment(model: Provider.Model, opts?: { isChild?: boolean }) {
     const project = Instance.project
     return [
       [
@@ -49,7 +49,9 @@ export namespace SystemPrompt {
         }`,
         `</directories>`,
       ].join("\n"),
-      [
+      // DACMICU: child sessions (oc check/prompt subagents) do actual work with tools.
+      // They must NOT see oc-scripting rules — that causes recursive loop creation.
+      ...(opts?.isChild ? [] : [[
         `<oc-scripting>`,
         `For tasks involving multiple files, iterations, or chained analysis: write one inline bash script using \`oc\` commands.`,
         `The \`oc\` command calls back into the running OpenCode instance — deterministic control flow + AI judgment at decision points.`,
@@ -225,7 +227,7 @@ export namespace SystemPrompt {
         `If oc tool glob returns truncated results (>100 files), use \`find dir -name "*.ext" -type f\` instead.`,
         `</oc-scaling>`,
         `</oc-scripting>`,
-      ].join("\n"),
+      ].join("\n")]),
     ]
   }
 
