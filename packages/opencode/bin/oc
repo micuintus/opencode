@@ -69,8 +69,9 @@ case "$1" in
           local_args="{\"pattern\":$(_json "$1")"
           [ -n "$2" ] && local_args="$local_args,\"path\":$(_json "$2")"
           local_args="$local_args}"
-          _tool_call "glob" "$local_args"
-          exit $?
+          # Strip null-byte OC_TRUNCATED marker — null bytes cause grep to emit
+          # "Binary file matches" instead of filtering, breaking downstream pipes.
+          _tool_call "glob" "$local_args" | tr -d '\0' | { grep -v 'OC_TRUNCATED' || true; }
           ;;
         grep)
           _announce "tool grep ${1:-} ${2:-}"
