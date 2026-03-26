@@ -58,6 +58,167 @@ async function stdin(): Promise<string> {
   return new Response(Bun.stdin.stream()).text()
 }
 
+async function handlePrompt(rest: string[]): Promise<void> {
+  let system: string | undefined
+  let model: string | undefined
+  let via: string | undefined
+  const files: string[] = []
+  const args: string[] = []
+  for (let i = 0; i < rest.length; i++) {
+    if (rest[i] === "-s" || rest[i] === "--system") {
+      if (i + 1 < rest.length) system = rest[++i]
+      continue
+    }
+    if (rest[i] === "-m" || rest[i] === "--model") {
+      if (i + 1 < rest.length) model = rest[++i]
+      continue
+    }
+    if (rest[i] === "-a" || rest[i] === "--agent") {
+      if (i + 1 < rest.length) via = rest[++i]
+      continue
+    }
+    if (rest[i] === "-f" || rest[i] === "--file") {
+      if (i + 1 < rest.length) files.push(rest[++i])
+      continue
+    }
+    args.push(rest[i])
+  }
+  const raw = await stdin()
+  // Detect OC_FILE markers from piped oc tool read output (binary file pass-through)
+  const lines: string[] = []
+  const piped: string[] = []
+  if (raw) {
+    for (const line of raw.split("\n")) {
+      if (line.startsWith(OC_FILE_MARKER)) {
+        piped.push(line.substring(OC_FILE_MARKER.length))
+      } else {
+        lines.push(line)
+      }
+    }
+  }
+  const input = lines.join("\n").trim()
+  const text = input ? `${input}\n\n${args.join(" ")}` : args.join(" ")
+  if (!text.trim()) {
+    console.error("oc prompt: no prompt text provided")
+    process.exit(1)
+  }
+
+  const body: Record<string, unknown> = { prompt: text }
+  if (system) body.system = system
+  if (via) body.agent = via
+  if (msg_id) body.messageID = msg_id
+  if (model) {
+    const parts = model.split("/")
+    if (parts.length < 2) {
+      console.error("oc prompt: model must be provider/model")
+      process.exit(1)
+    }
+    body.model = { providerID: parts[0], modelID: parts.slice(1).join("/") }
+  }
+  // Attach files: explicit --file + auto-detected piped binary files
+  const attached = [...files, ...piped]
+  if (attached.length > 0) {
+    body.files = await Promise.all(
+      attached.map(async (filepath: string) => {
+        const base64 = Buffer.from(await Bun.file(filepath).arrayBuffer()).toString("base64")
+        const ext = filepath.split(".").pop()?.toLowerCase() ?? ""
+        const mime =
+          ext === "pdf"
+            ? "application/pdf"
+            : ext === "png"
+              ? "image/png"
+              : ext === "jpg" || ext === "jpeg"
+                ? "image/jpeg"
+                : `application/${ext}`
+        return { filename: filepath.split("/").pop() ?? filepath, mime, url: `data:${mime};base64,${base64}` }
+      }),
+    )
+  }
+
+  const label = system
+    ? `prompt -s "${system.substring(0, 30)}" "${args.join(" ").substring(0, 50)}"`
+    : `prompt "${args.join(" ").substring(0, 60)}"`
+  announce(label)
+  const result = await api("POST", `/session/${session}/exec`, body)
+  process.stdout.write(result)
+}
+
+async function handleCheck(rest: string[]): Promise<void> {
+  // grep pattern: detailed assessment on stdout, boolean on exit code.
+  // The agent investigates with full tool access (no json_schema constraint),
+  // then a same-session follow-up gets the boolean (warm KV cache, ~40 tokens).
+  //
+  // Usage in while-capture pattern:
+  //   while assessment=$(oc check "issues?"); do echo "$assessment" | oc prompt "fix"; done
+  const input = await stdin()
+  const question = input ? `${input}\n\n${rest.join(" ")}` : rest.join(" ")
+  if (!question.trim()) {
+    console.error("oc check: no question provided")
+    process.exit(1)
+  }
+  announce(`check "${question.substring(0, 60)}"`)
+
+  const BOOL_SCHEMA = {
+    type: "object",
+    properties: {
+      result: {
+        type: "boolean",
+        description: "true if the answer to the original question is yes/affirmative, false otherwise",
+      },
+    },
+    required: ["result"],
+  }
+
+  const body: Record<string, unknown> = {
+    prompt: question,
+    // Subagent system prompt: do the work directly, don't write oc scripts (prevents recursion)
+    system:
+      "You are a subagent executing a specific task. Do the work directly using your tools (read, grep, edit, bash, glob). Do NOT write oc scripts or oc loops — you ARE inside one.",
+    // No format constraint — agent can use tools for full assessment
+    followUp: {
+      prompt:
+        "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",
+      format: { type: "json_schema", schema: BOOL_SCHEMA },
+    },
+  }
+  if (msg_id) body.messageID = msg_id
+
+  const OC_FOLLOWUP = "\x00OC_FOLLOWUP\x00:"
+
+  try {
+    const response = await api("POST", `/session/${session}/exec`, body)
+
+    // Parse response: assessment text + follow-up boolean
+    const marker = response.indexOf(OC_FOLLOWUP)
+    let assessment: string
+    let result: boolean
+
+    if (marker !== -1) {
+      // Server returned follow-up: assessment + boolean
+      assessment = response.substring(0, marker)
+      try {
+        const parsed = JSON.parse(response.substring(marker + OC_FOLLOWUP.length))
+        result = parsed.result === true
+      } catch {
+        result = true // parse failed → conservative: assume yes, keep loop going
+      }
+    } else {
+      // No follow-up marker — fallback to text matching on response
+      assessment = response
+      const lower = response.toLowerCase().trim()
+      result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
+    }
+
+    // grep pattern: findings to stdout, boolean to exit code
+    if (assessment.trim()) process.stdout.write(assessment.trimEnd() + "\n")
+    process.exit(result === true ? 0 : 1)
+  } catch (e) {
+    // HTTP/network error — exit 0 = conservative = keeps the loop going
+    console.error(`[oc] check error: ${e instanceof Error ? e.message : String(e)}`)
+    process.exit(0)
+  }
+}
+
 const OC_FILE_MARKER = "\x00OC_FILE\x00:"
 const OC_TRUNCATED_MARKER = "\x00OC_TRUNCATED\x00:"
 
@@ -65,88 +226,7 @@ const [, , cmd, ...rest] = process.argv
 
 switch (cmd) {
   case "prompt": {
-    let system: string | undefined
-    let model: string | undefined
-    let via: string | undefined
-    const files: string[] = []
-    const args: string[] = []
-    for (let i = 0; i < rest.length; i++) {
-      if (rest[i] === "-s" || rest[i] === "--system") {
-        if (i + 1 < rest.length) system = rest[++i]
-        continue
-      }
-      if (rest[i] === "-m" || rest[i] === "--model") {
-        if (i + 1 < rest.length) model = rest[++i]
-        continue
-      }
-      if (rest[i] === "-a" || rest[i] === "--agent") {
-        if (i + 1 < rest.length) via = rest[++i]
-        continue
-      }
-      if (rest[i] === "-f" || rest[i] === "--file") {
-        if (i + 1 < rest.length) files.push(rest[++i])
-        continue
-      }
-      args.push(rest[i])
-    }
-    const raw = await stdin()
-    // Detect OC_FILE markers from piped oc tool read output (binary file pass-through)
-    const lines: string[] = []
-    const piped: string[] = []
-    if (raw) {
-      for (const line of raw.split("\n")) {
-        if (line.startsWith(OC_FILE_MARKER)) {
-          piped.push(line.substring(OC_FILE_MARKER.length))
-        } else {
-          lines.push(line)
-        }
-      }
-    }
-    const input = lines.join("\n").trim()
-    const text = input ? `${input}\n\n${args.join(" ")}` : args.join(" ")
-    if (!text.trim()) {
-      console.error("oc prompt: no prompt text provided")
-      process.exit(1)
-    }
-
-    const body: Record<string, unknown> = { prompt: text }
-    if (system) body.system = system
-    if (via) body.agent = via
-    if (msg_id) body.messageID = msg_id
-    if (model) {
-      const parts = model.split("/")
-      if (parts.length < 2) {
-        console.error("oc prompt: model must be provider/model")
-        process.exit(1)
-      }
-      body.model = { providerID: parts[0], modelID: parts.slice(1).join("/") }
-    }
-    // Attach files: explicit --file + auto-detected piped binary files
-    const attached = [...files, ...piped]
-    if (attached.length > 0) {
-      body.files = await Promise.all(
-        attached.map(async (filepath: string) => {
-          const base64 = Buffer.from(await Bun.file(filepath).arrayBuffer()).toString("base64")
-          const ext = filepath.split(".").pop()?.toLowerCase() ?? ""
-          const mime =
-            ext === "pdf"
-              ? "application/pdf"
-              : ext === "png"
-                ? "image/png"
-                : ext === "jpg" || ext === "jpeg"
-                  ? "image/jpeg"
-                  : `application/${ext}`
-          return { filename: filepath.split("/").pop() ?? filepath, mime, url: `data:${mime};base64,${base64}` }
-        }),
-      )
-    }
-
-    const label = system
-      ? `prompt -s "${system.substring(0, 30)}" "${args.join(" ").substring(0, 50)}"`
-      : `prompt "${args.join(" ").substring(0, 60)}"`
-    announce(label)
-    const result = await api("POST", `/session/${session}/exec`, body)
-    process.stdout.write(result)
+    await handlePrompt(rest)
     break
   }
 
@@ -207,15 +287,15 @@ switch (cmd) {
     const result = await tool(name, args)
     // Filter out in-band metadata (null-byte protocol) — redirect to stderr
     const lines = result.split("\n")
-    const dataLines: string[] = []
+    const output: string[] = []
     for (const line of lines) {
       if (line.startsWith(OC_TRUNCATED_MARKER)) {
         process.stderr.write(`\x1b[33m[oc] ${line.substring(OC_TRUNCATED_MARKER.length)}\x1b[0m\n`)
       } else {
-        dataLines.push(line)
+        output.push(line)
       }
     }
-    process.stdout.write(dataLines.join("\n"))
+    process.stdout.write(output.join("\n"))
     break
   }
 
@@ -265,8 +345,8 @@ switch (cmd) {
           console.error("oc todo done: provide 1-based index")
           process.exit(1)
         }
-        const todosRes = await api("GET", `/session/${session}/todo`)
-        const todos = JSON.parse(todosRes)
+        const response = await api("GET", `/session/${session}/todo`)
+        const todos = JSON.parse(response)
         if (idx > todos.length) {
           console.error(`oc todo done: index ${idx} out of range (max: ${todos.length})`)
           process.exit(1)
@@ -297,85 +377,18 @@ switch (cmd) {
     }
     announce(`status: ${message}`)
     // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
-    const statusBody: Record<string, unknown> = { message }
-    if (msg_id) statusBody.messageID = msg_id
+    const body: Record<string, unknown> = { message }
+    if (msg_id) body.messageID = msg_id
     fetch(new URL(`/session/${session}/status`, server).toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(statusBody),
+      body: JSON.stringify(body),
     }).catch(() => {})
     break
   }
 
   case "check": {
-    // grep pattern: detailed assessment on stdout, boolean on exit code.
-    // The agent investigates with full tool access (no json_schema constraint),
-    // then a same-session follow-up gets the boolean (warm KV cache, ~40 tokens).
-    //
-    // Usage in while-capture pattern:
-    //   while assessment=$(oc check "issues?"); do echo "$assessment" | oc prompt "fix"; done
-    const input = await stdin()
-    const question = input ? `${input}\n\n${rest.join(" ")}` : rest.join(" ")
-    if (!question.trim()) {
-      console.error("oc check: no question provided")
-      process.exit(1)
-    }
-    announce(`check "${question.substring(0, 60)}"`)
-
-    const BOOL_SCHEMA = {
-      type: "object",
-      properties: {
-        result: { type: "boolean", description: "true if the answer to the original question is yes/affirmative, false otherwise" },
-      },
-      required: ["result"],
-    }
-
-    const body: Record<string, unknown> = {
-      prompt: question,
-      // Subagent system prompt: do the work directly, don't write oc scripts (prevents recursion)
-      system: "You are a subagent executing a specific task. Do the work directly using your tools (read, grep, edit, bash, glob). Do NOT write oc scripts or oc loops — you ARE inside one.",
-      // No format constraint — agent can use tools for full assessment
-      followUp: {
-        prompt: "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",
-        format: { type: "json_schema", schema: BOOL_SCHEMA },
-      },
-    }
-    if (msg_id) body.messageID = msg_id
-
-    const OC_FOLLOWUP = "\x00OC_FOLLOWUP\x00:"
-
-    try {
-      const response = await api("POST", `/session/${session}/exec`, body)
-
-      // Parse response: assessment text + follow-up boolean
-      const markerIdx = response.indexOf(OC_FOLLOWUP)
-      let assessment: string
-      let result: boolean
-
-      if (markerIdx !== -1) {
-        // Server returned follow-up: assessment + boolean
-        assessment = response.substring(0, markerIdx)
-        try {
-          const followUp = JSON.parse(response.substring(markerIdx + OC_FOLLOWUP.length))
-          result = followUp.result === true
-        } catch {
-          result = true // parse failed → conservative: assume yes, keep loop going
-        }
-      } else {
-        // No follow-up marker — fallback to text matching on response
-        assessment = response
-        const lower = response.toLowerCase().trim()
-        result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
-      }
-
-      // grep pattern: findings to stdout, boolean to exit code
-      if (assessment.trim()) process.stdout.write(assessment.trimEnd() + "\n")
-      process.exit(result === true ? 0 : 1)
-    } catch (e) {
-      // HTTP/network error — exit 0 = conservative = keeps the loop going
-      console.error(`[oc] check error: ${e instanceof Error ? e.message : String(e)}`)
-      process.exit(0)
-    }
+    await handleCheck(rest)
     break
   }
 
