@@ -4,8 +4,8 @@
 // Deterministic tool calls use the shell fast-path (bin/oc); this binary
 // handles complex operations: prompt, agent, todo, status, and tool fallback.
 
-const serverUrl = process.env.OPENCODE_SERVER_URL
-if (!serverUrl) {
+const server = process.env.OPENCODE_SERVER_URL
+if (!server) {
   console.error("oc: OPENCODE_SERVER_URL not set — are you running inside an openCode bash tool?")
   process.exit(1)
 }
@@ -15,17 +15,16 @@ if (!session) {
   process.exit(1)
 }
 const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()
-const messageID = process.env.OPENCODE_MESSAGE_ID
+const msg_id = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 
 function announce(label: string) {
   if (!quiet) process.stderr.write(`\x1b[2m[oc] ${label}\x1b[0m\n`)
 }
 
-async function api(method: string, path: string, body?: any): Promise<string> {
-  const url = new URL(path, serverUrl).toString()
+async function api(method: string, path: string, body?: unknown): Promise<string> {
   try {
-    const res = await fetch(url, {
+    const res = await fetch(new URL(path, server).toString(), {
       method,
       headers: { "Content-Type": "application/json", "x-opencode-directory": encodeURIComponent(dir) },
       body: body ? JSON.stringify(body) : undefined,
@@ -43,14 +42,14 @@ async function api(method: string, path: string, body?: any): Promise<string> {
   }
 }
 
-function toolBody(name: string, args: Record<string, any>): any {
+function toolBody(name: string, args: Record<string, unknown>): Record<string, unknown> {
   const agent = process.env.OPENCODE_AGENT ?? "build"
-  const body: any = { name, args, agent }
-  if (messageID) body.messageID = messageID
+  const body: Record<string, unknown> = { name, args, agent }
+  if (msg_id) body.messageID = msg_id
   return body
 }
 
-async function tool(name: string, args: Record<string, any>): Promise<string> {
+async function tool(name: string, args: Record<string, unknown>): Promise<string> {
   return api("POST", `/session/${session}/tool`, toolBody(name, args))
 }
 
@@ -72,51 +71,79 @@ switch (cmd) {
     const files: string[] = []
     const args: string[] = []
     for (let i = 0; i < rest.length; i++) {
-      if (rest[i] === "-s" || rest[i] === "--system") { if (i + 1 < rest.length) system = rest[++i]; continue }
-      if (rest[i] === "-m" || rest[i] === "--model") { if (i + 1 < rest.length) model = rest[++i]; continue }
-      if (rest[i] === "-a" || rest[i] === "--agent") { if (i + 1 < rest.length) via = rest[++i]; continue }
-      if (rest[i] === "-f" || rest[i] === "--file") { if (i + 1 < rest.length) files.push(rest[++i]); continue }
+      if (rest[i] === "-s" || rest[i] === "--system") {
+        if (i + 1 < rest.length) system = rest[++i]
+        continue
+      }
+      if (rest[i] === "-m" || rest[i] === "--model") {
+        if (i + 1 < rest.length) model = rest[++i]
+        continue
+      }
+      if (rest[i] === "-a" || rest[i] === "--agent") {
+        if (i + 1 < rest.length) via = rest[++i]
+        continue
+      }
+      if (rest[i] === "-f" || rest[i] === "--file") {
+        if (i + 1 < rest.length) files.push(rest[++i])
+        continue
+      }
       args.push(rest[i])
     }
-    const rawInput = await stdin()
+    const raw = await stdin()
     // Detect OC_FILE markers from piped oc tool read output (binary file pass-through)
-    const inputLines: string[] = []
-    const pipedFiles: string[] = []
-    if (rawInput) {
-      for (const line of rawInput.split("\n")) {
+    const lines: string[] = []
+    const piped: string[] = []
+    if (raw) {
+      for (const line of raw.split("\n")) {
         if (line.startsWith(OC_FILE_MARKER)) {
-          pipedFiles.push(line.substring(OC_FILE_MARKER.length))
+          piped.push(line.substring(OC_FILE_MARKER.length))
         } else {
-          inputLines.push(line)
+          lines.push(line)
         }
       }
     }
-    const input = inputLines.join("\n").trim()
+    const input = lines.join("\n").trim()
     const text = input ? `${input}\n\n${args.join(" ")}` : args.join(" ")
-    if (!text.trim()) { console.error("oc prompt: no prompt text provided"); process.exit(1) }
+    if (!text.trim()) {
+      console.error("oc prompt: no prompt text provided")
+      process.exit(1)
+    }
 
-    const body: any = { prompt: text }
+    const body: Record<string, unknown> = { prompt: text }
     if (system) body.system = system
     if (via) body.agent = via
-    if (messageID) body.messageID = messageID
+    if (msg_id) body.messageID = msg_id
     if (model) {
       const parts = model.split("/")
-      if (parts.length < 2) { console.error("oc prompt: model must be provider/model"); process.exit(1) }
+      if (parts.length < 2) {
+        console.error("oc prompt: model must be provider/model")
+        process.exit(1)
+      }
       body.model = { providerID: parts[0], modelID: parts.slice(1).join("/") }
     }
     // Attach files: explicit --file + auto-detected piped binary files
-    const allFiles = [...files, ...pipedFiles]
-    if (allFiles.length > 0) {
-      body.files = await Promise.all(allFiles.map(async (filepath) => {
-        const data = await Bun.file(filepath).arrayBuffer()
-        const base64 = Buffer.from(data).toString("base64")
-        const ext = filepath.split(".").pop()?.toLowerCase() ?? ""
-        const mime = ext === "pdf" ? "application/pdf" : ext === "png" ? "image/png" : ext === "jpg" || ext === "jpeg" ? "image/jpeg" : `application/${ext}`
-        return { filename: filepath.split("/").pop() ?? filepath, mime, url: `data:${mime};base64,${base64}` }
-      }))
+    const attached = [...files, ...piped]
+    if (attached.length > 0) {
+      body.files = await Promise.all(
+        attached.map(async (filepath: string) => {
+          const base64 = Buffer.from(await Bun.file(filepath).arrayBuffer()).toString("base64")
+          const ext = filepath.split(".").pop()?.toLowerCase() ?? ""
+          const mime =
+            ext === "pdf"
+              ? "application/pdf"
+              : ext === "png"
+                ? "image/png"
+                : ext === "jpg" || ext === "jpeg"
+                  ? "image/jpeg"
+                  : `application/${ext}`
+          return { filename: filepath.split("/").pop() ?? filepath, mime, url: `data:${mime};base64,${base64}` }
+        }),
+      )
     }
 
-    const label = system ? `prompt -s "${system.substring(0, 30)}" "${args.join(" ").substring(0, 50)}"` : `prompt "${args.join(" ").substring(0, 60)}"`
+    const label = system
+      ? `prompt -s "${system.substring(0, 30)}" "${args.join(" ").substring(0, 50)}"`
+      : `prompt "${args.join(" ").substring(0, 60)}"`
     announce(label)
     const result = await api("POST", `/session/${session}/exec`, body)
     process.stdout.write(result)
@@ -125,24 +152,56 @@ switch (cmd) {
 
   case "tool": {
     const [name, ...toolArgs] = rest
-    if (!name) { console.error("oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash"); process.exit(1) }
-    let args: Record<string, any> = {}
+    if (!name) {
+      console.error("oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash")
+      process.exit(1)
+    }
+    let args: Record<string, unknown> = {}
     switch (name) {
-      case "read": args = { filePath: toolArgs[0], limit: toolArgs.includes("-n") ? parseInt(toolArgs[toolArgs.indexOf("-n") + 1]) : undefined }; break
-      case "write": { const content = await stdin(); args = { filePath: toolArgs[0], content }; break }
-      case "edit": {
-        const fp = toolArgs[0]; let o = "", n = ""
-        for (let i = 1; i < toolArgs.length; i++) {
-          if (toolArgs[i] === "--old" || toolArgs[i] === "-o") o = toolArgs[++i]
-          if (toolArgs[i] === "--new" || toolArgs[i] === "-n") n = toolArgs[++i]
+      case "read":
+        args = {
+          filePath: toolArgs[0],
+          limit: toolArgs.includes("-n") ? parseInt(toolArgs[toolArgs.indexOf("-n") + 1]) : undefined,
         }
-        args = { filePath: fp, oldString: o, newString: n }; break
+        break
+      case "write": {
+        const content = await stdin()
+        args = { filePath: toolArgs[0], content }
+        break
       }
-      case "grep": args = { pattern: toolArgs[0], path: toolArgs[1] ?? "." }; break
-      case "glob": args = { pattern: toolArgs[0], path: toolArgs[1] }; break
-      case "bash": { const command = toolArgs.join(" "); args = { command, description: `oc bash: ${command.substring(0, 50)}` }; break }
-      case "batch": { const content = await stdin(); try { args = { tool_calls: JSON.parse(content) } } catch { console.error("oc tool batch: expects JSON from stdin"); process.exit(1) } break }
-      default: args = Object.fromEntries(toolArgs.map((a, i) => [i === 0 ? "input" : `arg${i}`, a]))
+      case "edit": {
+        const fp = toolArgs[0]
+        const params = { old: "", new: "" }
+        for (let i = 1; i < toolArgs.length; i++) {
+          if (toolArgs[i] === "--old" || toolArgs[i] === "-o") params.old = toolArgs[++i]
+          if (toolArgs[i] === "--new" || toolArgs[i] === "-n") params.new = toolArgs[++i]
+        }
+        args = { filePath: fp, oldString: params.old, newString: params.new }
+        break
+      }
+      case "grep":
+        args = { pattern: toolArgs[0], path: toolArgs[1] ?? "." }
+        break
+      case "glob":
+        args = { pattern: toolArgs[0], path: toolArgs[1] }
+        break
+      case "bash": {
+        const command = toolArgs.join(" ")
+        args = { command, description: `oc bash: ${command.substring(0, 50)}` }
+        break
+      }
+      case "batch": {
+        const content = await stdin()
+        try {
+          args = { tool_calls: JSON.parse(content) }
+        } catch {
+          console.error("oc tool batch: expects JSON from stdin")
+          process.exit(1)
+        }
+        break
+      }
+      default:
+        args = Object.fromEntries(toolArgs.map((a, i) => [i === 0 ? "input" : `arg${i}`, a]))
     }
     announce(`tool ${name} ${toolArgs[0]?.substring(0, 60) ?? ""}`)
     const result = await tool(name, args)
@@ -162,13 +221,19 @@ switch (cmd) {
 
   case "agent": {
     const [type, ...agentArgs] = rest
-    if (!type) { console.error("oc agent: usage: oc agent <type> <prompt>"); process.exit(1) }
+    if (!type) {
+      console.error("oc agent: usage: oc agent <type> <prompt>")
+      process.exit(1)
+    }
     const input = await stdin()
     const text = input ? `${input}\n\n${agentArgs.join(" ")}` : agentArgs.join(" ")
-    if (!text.trim()) { console.error("oc agent: no prompt text"); process.exit(1) }
+    if (!text.trim()) {
+      console.error("oc agent: no prompt text")
+      process.exit(1)
+    }
     announce(`agent ${type} "${agentArgs.join(" ").substring(0, 50)}"`)
-    const body: any = { prompt: text, agent: type }
-    if (messageID) body.messageID = messageID
+    const body: Record<string, unknown> = { prompt: text, agent: type }
+    if (msg_id) body.messageID = msg_id
     const result = await api("POST", `/session/${session}/exec`, body)
     process.stdout.write(result)
     break
@@ -179,44 +244,62 @@ switch (cmd) {
     switch (sub) {
       case "add": {
         const content = todoArgs.join(" ")
-        if (!content.trim()) { console.error("oc todo add: no content"); process.exit(1) }
+        if (!content.trim()) {
+          console.error("oc todo add: no content")
+          process.exit(1)
+        }
         announce(`todo add "${content.substring(0, 50)}"`)
         const result = await api("POST", `/session/${session}/todo`, { content, status: "pending" })
         process.stdout.write(result)
         break
       }
-      case "list": case "read": {
+      case "list":
+      case "read": {
         const result = await api("GET", `/session/${session}/todo`)
         process.stdout.write(result)
         break
       }
       case "done": {
         const idx = parseInt(todoArgs[0])
-        if (isNaN(idx) || idx < 1) { console.error("oc todo done: provide 1-based index"); process.exit(1) }
+        if (isNaN(idx) || idx < 1) {
+          console.error("oc todo done: provide 1-based index")
+          process.exit(1)
+        }
         const todosRes = await api("GET", `/session/${session}/todo`)
         const todos = JSON.parse(todosRes)
-        if (idx > todos.length) { console.error(`oc todo done: index ${idx} out of range (max: ${todos.length})`); process.exit(1) }
+        if (idx > todos.length) {
+          console.error(`oc todo done: index ${idx} out of range (max: ${todos.length})`)
+          process.exit(1)
+        }
         todos[idx - 1].status = "completed"
         announce(`todo done ${idx} ✓ ${(todos[idx - 1].content as string).substring(0, 40)}`)
         await api("PUT", `/session/${session}/todo`, { todos })
         console.log(`Marked todo ${idx} as completed: ${todos[idx - 1].content}`)
         break
       }
-      case "clear": { await api("PUT", `/session/${session}/todo`, { todos: [] }); console.log("Cleared all todos"); break }
-      default: console.error(`oc todo: unknown '${sub}'. Usage: oc todo <add|list|done|clear>`); process.exit(1)
+      case "clear": {
+        await api("PUT", `/session/${session}/todo`, { todos: [] })
+        console.log("Cleared all todos")
+        break
+      }
+      default:
+        console.error(`oc todo: unknown '${sub}'. Usage: oc todo <add|list|done|clear>`)
+        process.exit(1)
     }
     break
   }
 
   case "status": {
     const message = rest.join(" ")
-    if (!message.trim()) { console.error("oc status: no message"); process.exit(1) }
+    if (!message.trim()) {
+      console.error("oc status: no message")
+      process.exit(1)
+    }
     announce(`status: ${message}`)
     // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
-    const statusBody: any = { message }
-    if (messageID) statusBody.messageID = messageID
-    const statusUrl = new URL(`/session/${session}/status`, serverUrl).toString()
-    fetch(statusUrl, {
+    const statusBody: Record<string, unknown> = { message }
+    if (msg_id) statusBody.messageID = msg_id
+    fetch(new URL(`/session/${session}/status`, server).toString(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(statusBody),
@@ -229,7 +312,10 @@ switch (cmd) {
     // Returns exit code 0 (true) or 1 (false) — for loop exit conditions
     const input = await stdin()
     const question = input ? `${input}\n\n${rest.join(" ")}` : rest.join(" ")
-    if (!question.trim()) { console.error("oc check: no question provided"); process.exit(1) }
+    if (!question.trim()) {
+      console.error("oc check: no question provided")
+      process.exit(1)
+    }
     announce(`check "${question.substring(0, 60)}"`)
 
     const CHECK_SCHEMA = {
@@ -241,11 +327,11 @@ switch (cmd) {
       required: ["result"],
     }
 
-    const body: any = {
+    const body: Record<string, unknown> = {
       prompt: question,
       format: { type: "json_schema", schema: CHECK_SCHEMA },
     }
-    if (messageID) body.messageID = messageID
+    if (msg_id) body.messageID = msg_id
 
     try {
       const response = await api("POST", `/session/${session}/exec`, body)
@@ -253,14 +339,19 @@ switch (cmd) {
       const parsed = JSON.parse(response.trim())
       const result = typeof parsed === "object" && parsed !== null ? parsed.result : parsed
       process.exit(result === true ? 0 : 1)
-    } catch {
-      // Fallback: text matching
-      process.exit(1) // conservative: don't break the loop
+    } catch (e) {
+      // On error (HTTP fail, JSON parse fail, structured output mismatch):
+      // exit 0 = "yes/affirmative" = conservative = keeps the loop going.
+      // exit 1 would mean "no" which BREAKS loops like: if ! oc check "issues?" || break
+      console.error(`[oc] check error: ${e instanceof Error ? e.message : String(e)}`)
+      process.exit(0)
     }
     break
   }
 
-  case "help": case "--help": case "-h":
+  case "help":
+  case "--help":
+  case "-h":
     console.log(`oc — DACMICU (Deterministic Agent Control by Model Instructed Command Umbrella)
 
 AI JUDGMENT (non-deterministic):
