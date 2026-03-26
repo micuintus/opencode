@@ -54,7 +54,8 @@ export namespace SystemPrompt {
       `IMPORTANT: When the user's request says "repeat", "iterate", "keep going until", "loop until", or "until X is done", ` +
         `your FIRST action must be writing an oc script with a while loop. Do NOT start by manually reading files. ` +
         `The canonical pattern: while assessment=$(oc check "criteria..."); do echo "$assessment" | oc prompt "Fix the issues above."; oc status "Round complete"; done ` +
-        `— pass the user's SPECIFIC criteria into the oc check string.`,
+        `— pass the user's SPECIFIC criteria into the oc check string. ` +
+        `For planning, use oc todo add (NOT markdown checklists) — only oc todo is accessible inside a loop.`,
       [
         `<oc-scripting>`,
         `For tasks involving multiple files, iterations, or chained analysis: write one inline bash script using \`oc\` commands.`,
