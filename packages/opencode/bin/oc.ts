@@ -170,9 +170,9 @@ async function handleCheck(rest: string[]): Promise<void> {
   }
 
   const body: Record<string, unknown> = {
-    prompt: question,
+    // Frame as a bounded task — the caller handles iteration, this agent does ONE assessment.
+    prompt: `Complete the following assessment and report your findings. The caller handles iteration — do not create loops.\n\n${question}`,
     // No format constraint — agent can use tools for full assessment.
-    // Child sessions automatically skip oc-scripting rules (session.parentID suppresses them).
     followUp: {
       prompt:
         "Based on your assessment above, is the answer to the original question yes or no? Answer only with the structured output.",
