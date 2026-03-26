@@ -180,6 +180,65 @@ describe("DACMICU — /session/:id/tool endpoint", () => {
   })
 })
 
+describe("DACMICU — exec followUp schema", () => {
+  test("exec endpoint accepts followUp field in request body", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await Session.create({})
+        const app = Server.Default()
+
+        // The exec endpoint should accept the followUp field without validation error.
+        // It will fail on the actual prompt (no model configured), but the schema should accept it.
+        const res = await app.request(`/session/${session.id}/exec`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: "test",
+            followUp: {
+              prompt: "Is the answer yes?",
+              format: {
+                type: "json_schema",
+                schema: {
+                  type: "object",
+                  properties: { result: { type: "boolean" } },
+                  required: ["result"],
+                },
+              },
+            },
+          }),
+        })
+        // Should NOT be 400 (validation error) — the schema accepts followUp
+        expect(res.status).not.toBe(400)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+
+  test("exec endpoint rejects invalid followUp shape", async () => {
+    await Instance.provide({
+      directory: root,
+      fn: async () => {
+        const session = await Session.create({})
+        const app = Server.Default()
+
+        const res = await app.request(`/session/${session.id}/exec`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: "test",
+            followUp: { invalid: true }, // missing prompt and format
+          }),
+        })
+        expect(res.status).toBe(400)
+
+        await Session.remove(session.id)
+      },
+    })
+  })
+})
+
 describe("DACMICU — todo endpoints", () => {
   test("POST creates a todo", async () => {
     await Instance.provide({

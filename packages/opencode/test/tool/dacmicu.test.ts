@@ -307,22 +307,80 @@ describe("DACMICU", () => {
       expect(result.stderr.toString()).toContain("no question")
     })
 
-    test("sends to /exec with format (fails on HTTP, not parse)", () => {
+    test("sends to /exec with followUp (fails on HTTP, not parse)", () => {
       const result = oc(["check", "Are tests passing?"])
-      expect(result.status).not.toBe(0)
-      // Should fail on HTTP connection, not argument parsing
+      // Should fail on HTTP connection (exit 0 = conservative), not argument parsing
       expect(result.stderr.toString()).not.toContain("no question")
     })
 
-    test("help text includes oc check", () => {
+    test("help text includes oc check with grep pattern", () => {
       const result = oc(["help"])
       expect(result.stdout.toString()).toContain("oc check")
-      expect(result.stdout.toString()).toContain("boolean")
+      expect(result.stdout.toString()).toContain("grep pattern")
+      expect(result.stdout.toString()).toContain("while")
     })
 
     test("help text says DACMICU", () => {
       const result = oc(["help"])
       expect(result.stdout.toString()).toContain("DACMICU")
+    })
+  })
+
+  // ── oc check grep pattern (OC_FOLLOWUP protocol) ─────────
+
+  describe("oc check OC_FOLLOWUP parsing", () => {
+    const OC_FOLLOWUP = "\x00OC_FOLLOWUP\x00:"
+
+    test("parses assessment + boolean from OC_FOLLOWUP marker", () => {
+      const response = `Found 3 issues:\n1) unused import\n2) missing validation\n3) duplicated code\n${OC_FOLLOWUP}{"result":true}`
+      const markerIdx = response.indexOf(OC_FOLLOWUP)
+      expect(markerIdx).toBeGreaterThan(0)
+
+      const assessment = response.substring(0, markerIdx)
+      expect(assessment).toContain("Found 3 issues")
+      expect(assessment).not.toContain("OC_FOLLOWUP")
+
+      const followUp = JSON.parse(response.substring(markerIdx + OC_FOLLOWUP.length))
+      expect(followUp.result).toBe(true)
+    })
+
+    test("result=true → exit code 0 (yes, issues found → loop continues)", () => {
+      const response = `Issues found\n${OC_FOLLOWUP}{"result":true}`
+      const markerIdx = response.indexOf(OC_FOLLOWUP)
+      const followUp = JSON.parse(response.substring(markerIdx + OC_FOLLOWUP.length))
+      // result === true → exit 0 (affirmative)
+      const exitCode = followUp.result === true ? 0 : 1
+      expect(exitCode).toBe(0)
+    })
+
+    test("result=false → exit code 1 (no issues → loop breaks)", () => {
+      const response = `No issues found. Code is clean.\n${OC_FOLLOWUP}{"result":false}`
+      const markerIdx = response.indexOf(OC_FOLLOWUP)
+      const followUp = JSON.parse(response.substring(markerIdx + OC_FOLLOWUP.length))
+      const exitCode = followUp.result === true ? 0 : 1
+      expect(exitCode).toBe(1)
+    })
+
+    test("no marker → falls back to text matching", () => {
+      const response = "Yes, there are issues with the code"
+      const markerIdx = response.indexOf(OC_FOLLOWUP)
+      expect(markerIdx).toBe(-1)
+      // Fallback: text matching
+      const lower = response.toLowerCase().trim()
+      const result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
+      expect(result).toBe(true)
+    })
+
+    test("text fallback: 'No issues found' → false", () => {
+      const response = "No issues found"
+      const lower = response.toLowerCase().trim()
+      const result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
+      expect(result).toBe(false)
+    })
+
+    test("marker cannot appear in normal text", () => {
+      const normalText = "The OC_FOLLOWUP protocol handles responses"
+      expect(normalText.indexOf(OC_FOLLOWUP)).toBe(-1)
     })
   })
 
