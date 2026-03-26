@@ -1,5 +1,4 @@
 import { Ripgrep } from "../file/ripgrep"
-import { Server } from "@/server/server"
 
 import { Instance } from "../project/instance"
 

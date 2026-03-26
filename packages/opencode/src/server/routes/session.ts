@@ -1131,25 +1131,29 @@ export const SessionRoutes = lazy(() =>
         const partID = parentMessageID ? PartID.ascending() : undefined
         const startTime = Date.now()
         const promptPreview = body.prompt.substring(0, 80) + (body.prompt.length > 80 ? "..." : "")
+        const title = body.system ? `oc prompt -s "${body.system}"` : "oc prompt"
 
-        if (parentMessageID && partID) {
-          await Session.updatePart({
-            id: partID,
-            messageID: parentMessageID,
-            sessionID: parent,
-            type: "tool",
-            tool: "task",
-            callID: partID,
-            metadata: { oc: true },
-            state: {
-              status: "running",
-              input: { prompt: promptPreview, description: promptPreview, subagent_type: "oc" },
-              title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
-              metadata: { sessionId: child.id, model },
-              time: { start: startTime },
-            },
-          })
-        }
+        const updateOcPart = (state: any) =>
+          parentMessageID && partID
+            ? Session.updatePart({
+                id: partID,
+                messageID: parentMessageID,
+                sessionID: parent,
+                type: "tool",
+                tool: "task",
+                callID: partID,
+                metadata: { oc: true },
+                state,
+              })
+            : undefined
+
+        await updateOcPart({
+          status: "running",
+          input: { prompt: promptPreview, description: promptPreview, subagent_type: "oc" },
+          title,
+          metadata: { sessionId: child.id, model },
+          time: { start: startTime },
+        })
 
         c.status(200)
         c.header("Content-Type", "text/plain")
@@ -1163,21 +1167,12 @@ export const SessionRoutes = lazy(() =>
             ? Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
                 if (event.properties.sessionID === child.id && event.properties.field === "text") {
                   streamedText += event.properties.delta
-                  Session.updatePart({
-                    id: partID,
-                    messageID: parentMessageID,
-                    sessionID: parent,
-                    type: "tool",
-                    tool: "task",
-                    callID: partID,
-                    metadata: { oc: true },
-                    state: {
-                      status: "running",
-                      input: { prompt: promptPreview },
-                      title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
-                      metadata: { sessionId: child.id, model, output: streamedText.substring(0, 2000) },
-                      time: { start: startTime },
-                    },
+                  updateOcPart({
+                    status: "running",
+                    input: { prompt: promptPreview },
+                    title,
+                    metadata: { sessionId: child.id, model, output: streamedText.substring(0, 2000) },
+                    time: { start: startTime },
                   })
                 }
               })
@@ -1207,44 +1202,22 @@ export const SessionRoutes = lazy(() =>
               responseText = text && "text" in text ? text.text : ""
             }
 
-            if (parentMessageID && partID) {
-              await Session.updatePart({
-                id: partID,
-                messageID: parentMessageID,
-                sessionID: parent,
-                type: "tool",
-                tool: "task",
-                callID: partID,
-                metadata: { oc: true },
-                state: {
-                  status: "completed",
-                  input: { prompt: promptPreview },
-                  output: responseText.substring(0, 2000),
-                  title: body.system ? `oc prompt -s "${body.system}"` : "oc prompt",
-                  metadata: { sessionId: child.id, model },
-                  time: { start: startTime, end: Date.now() },
-                },
-              })
-            }
+            await updateOcPart({
+              status: "completed",
+              input: { prompt: promptPreview },
+              output: responseText.substring(0, 2000),
+              title,
+              metadata: { sessionId: child.id, model },
+              time: { start: startTime, end: Date.now() },
+            })
             await stream.write(responseText)
           } catch (error) {
-            if (parentMessageID && partID) {
-              await Session.updatePart({
-                id: partID,
-                messageID: parentMessageID,
-                sessionID: parent,
-                type: "tool",
-                tool: "task",
-                callID: partID,
-                metadata: { oc: true },
-                state: {
-                  status: "error",
-                  input: { prompt: promptPreview },
-                  error: error instanceof Error ? error.message : String(error),
-                  time: { start: startTime, end: Date.now() },
-                },
-              })
-            }
+            await updateOcPart({
+              status: "error",
+              input: { prompt: promptPreview },
+              error: error instanceof Error ? error.message : String(error),
+              time: { start: startTime, end: Date.now() },
+            })
             throw error
           } finally {
             unsub?.()
@@ -1395,9 +1368,13 @@ export const SessionRoutes = lazy(() =>
       },
     )
     // POST /session/:id/status — create a visible status ToolPart (used by oc status)
-    .post("/:sessionID/status", async (c) => {
-      const sessionID = c.req.param("sessionID") as SessionID
-      const body = (await c.req.json()) as { message: string; messageID?: string }
+    .post(
+      "/:sessionID/status",
+      validator("param", z.object({ sessionID: SessionID.zod })),
+      validator("json", z.object({ message: z.string(), messageID: z.string().optional() })),
+      async (c) => {
+      const sessionID = c.req.valid("param").sessionID
+      const body = c.req.valid("json")
       const parentMessageID = body.messageID as MessageID | undefined
       if (parentMessageID && body.message) {
         const partID = PartID.ascending()
