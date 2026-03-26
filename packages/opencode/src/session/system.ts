@@ -76,7 +76,7 @@ export namespace SystemPrompt {
         `2. One pipeline per item — extract + transform + AI in a SINGLE pipeline per item. NEVER split into "phase 1: extract all, phase 2: summarize all". The power of oc is composable pipelines: \`extract "$f" | oc prompt "summarize"\`.`,
         `3. If a script fails, diagnose and fix the script. Do not abandon oc and fall back to individual tool calls.`,
         `4. Always loop with \`while IFS= read -r\`, never \`for f in $(...)\` (breaks on spaces/special chars → ENAMETOOLONG).`,
-        `5. Scripts using oc get no timeout — loops can run for hours. The user aborts with Ctrl+C.`,
+        `5. Scripts using oc get no timeout — do NOT pass a timeout parameter to the bash tool for oc scripts. They can run for hours. The user aborts with Ctrl+C.`,
         `6. Use \`oc status\` for progress visibility — it creates a visible marker in the TUI. Use it at milestones:`,
         `   \`oc status "Processing $count/$total: $(basename "$f")"\` inside loops.`,
         `</oc-rules>`,
