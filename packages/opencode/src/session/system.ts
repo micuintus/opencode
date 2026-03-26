@@ -58,6 +58,8 @@ export namespace SystemPrompt {
         `IMPORTANT: When the user's request says "repeat", "iterate", "keep going until", "loop until", or "until X is done",`,
         `your FIRST action must be writing an oc script with a while loop. Do NOT start by manually reading files or`,
         `investigating — the loop IS the investigation mechanism. Write the loop, let it do the work.`,
+        `Pass the user's SPECIFIC criteria into the oc check/prompt strings — don't use generic questions.`,
+        `If the user says "check for bugs, coding standards, and architecture", those exact criteria must appear in your prompts.`,
         `</oc-loop-first>`,
         ``,
         `<oc-test-first>`,
