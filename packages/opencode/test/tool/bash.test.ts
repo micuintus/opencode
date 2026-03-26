@@ -512,6 +512,43 @@ describe("tool.bash truncation", () => {
       }
     })
 
+    // ── DACMICU no-timeout for oc scripts ──────────────────
+    test("regular command respects explicit timeout", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          // sleep 1s with 50ms timeout → the timer fires and kills it
+          const result = await bash.execute(
+            { command: "sleep 1", timeout: 50, description: "sleep that should time out" },
+            ctx,
+          )
+          expect(result.output).toContain("terminated command after exceeding timeout")
+        },
+      })
+    })
+
+    test("oc script ignores explicit timeout — Ralph loop can run without being killed", async () => {
+      await Instance.provide({
+        directory: projectRoot,
+        fn: async () => {
+          const bash = await BashTool.init()
+          // sleep 0.2s followed by oc tool — timeout: 50 would kill a normal command in ~150ms,
+          // but usesOc=true forces timeout=0, so no timer is created and the script runs to completion
+          const result = await bash.execute(
+            {
+              command: "sleep 0.2; oc tool read /dev/null",
+              timeout: 50,
+              description: "oc script — timeout param must be ignored",
+            },
+            ctx,
+          )
+          // Process ran to completion (oc may fail on HTTP, but that is not a timeout kill)
+          expect(result.output).not.toContain("terminated command after exceeding timeout")
+        },
+      })
+    })
+
     test("OPENCODE_SERVER_URL is empty when Server.url is undefined", async () => {
       const { Server } = await import("../../src/server/server")
       const prev = Server.url
