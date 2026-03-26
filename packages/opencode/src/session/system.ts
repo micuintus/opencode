@@ -49,23 +49,16 @@ export namespace SystemPrompt {
         }`,
         `</directories>`,
       ].join("\n"),
+      // oc-loop-first is a SEPARATE block before oc-scripting for prominence.
+      // Inside oc-scripting it gets lost in 175 lines of reference material.
+      `IMPORTANT: When the user's request says "repeat", "iterate", "keep going until", "loop until", or "until X is done", ` +
+        `your FIRST action must be writing an oc script with a while loop. Do NOT start by manually reading files. ` +
+        `The canonical pattern: while assessment=$(oc check "criteria..."); do echo "$assessment" | oc prompt "Fix the issues above."; oc status "Round complete"; done ` +
+        `— pass the user's SPECIFIC criteria into the oc check string.`,
       [
         `<oc-scripting>`,
         `For tasks involving multiple files, iterations, or chained analysis: write one inline bash script using \`oc\` commands.`,
         `The \`oc\` command calls back into the running OpenCode instance — deterministic control flow + AI judgment at decision points.`,
-        ``,
-        `<oc-loop-first>`,
-        `IMPORTANT: When the user's request says "repeat", "iterate", "keep going until", "loop until", or "until X is done",`,
-        `your FIRST action must be writing an oc script with a while loop. Do NOT start by manually reading files or`,
-        `investigating — the loop IS the investigation mechanism. Write the loop, let it do the work.`,
-        `Pass the user's SPECIFIC criteria into the oc check/prompt strings — don't use generic questions.`,
-        `If the user says "check for bugs, coding standards, and architecture", those exact criteria must appear in your prompts.`,
-        `The canonical pattern (while-capture, like \`while read\`):`,
-        `  while assessment=$(oc check "criteria..."); do`,
-        `    echo "$assessment" | oc prompt "Fix the issues listed above."`,
-        `    oc status "Round complete"`,
-        `  done`,
-        `</oc-loop-first>`,
         ``,
         `<oc-test-first>`,
         `Before any batch operation (>1 item): test the full pipeline on ONE item, verify the output, then scale.`,
