@@ -335,14 +335,19 @@ switch (cmd) {
 
     try {
       const response = await api("POST", `/session/${session}/exec`, body)
-      // The response is the structured output JSON from the StructuredOutput tool
-      const parsed = JSON.parse(response.trim())
-      const result = typeof parsed === "object" && parsed !== null ? parsed.result : parsed
+      let result: boolean
+      try {
+        // Try structured JSON output first (model supports json_schema format)
+        const parsed = JSON.parse(response.trim())
+        result = typeof parsed === "object" && parsed !== null ? parsed.result : parsed === true
+      } catch {
+        // Model returned plain text — fallback to text matching
+        const lower = response.toLowerCase().trim()
+        result = /^(yes|true|1|affirm|correct)/.test(lower) || (lower.includes("yes") && !lower.includes("no"))
+      }
       process.exit(result === true ? 0 : 1)
     } catch (e) {
-      // On error (HTTP fail, JSON parse fail, structured output mismatch):
-      // exit 0 = "yes/affirmative" = conservative = keeps the loop going.
-      // exit 1 would mean "no" which BREAKS loops like: if ! oc check "issues?" || break
+      // HTTP/network error — exit 0 = "yes/affirmative" = conservative = keeps the loop going
       console.error(`[oc] check error: ${e instanceof Error ? e.message : String(e)}`)
       process.exit(0)
     }
