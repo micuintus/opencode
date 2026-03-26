@@ -401,8 +401,8 @@ describe("tool.bash truncation", () => {
     })
   })
 
-  // micuDAC: oc env var injection
-  describe("micuDAC env vars", () => {
+  // DACMICU: oc env var injection
+  describe("DACMICU env vars", () => {
     test("OPENCODE_SESSION_ID is injected into bash subprocess", async () => {
       await Instance.provide({
         directory: projectRoot,

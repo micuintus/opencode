@@ -44,7 +44,7 @@ async function createSessionWithMessage(sessionID: SessionID) {
   return assistantID
 }
 
-describe("micuDAC — /session/:id/tool endpoint", () => {
+describe("DACMICU — /session/:id/tool endpoint", () => {
   test("executes a tool and returns output", async () => {
     await Instance.provide({
       directory: root,
@@ -144,7 +144,7 @@ describe("micuDAC — /session/:id/tool endpoint", () => {
   })
 
   // Note: tool error tests skipped because tools ask for permissions which
-  // hang in test context. Error handling is tested via CLI tests in micu.test.ts.
+  // hang in test context. Error handling is tested via CLI tests in dacmicu.test.ts.
 
   test("binary file pass-through appends OC_FILE marker for PDF", async () => {
     await Instance.provide({
@@ -180,7 +180,7 @@ describe("micuDAC — /session/:id/tool endpoint", () => {
   })
 })
 
-describe("micuDAC — todo endpoints", () => {
+describe("DACMICU — todo endpoints", () => {
   test("POST creates a todo", async () => {
     await Instance.provide({
       directory: root,

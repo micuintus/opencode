@@ -184,7 +184,7 @@ export const TuiThreadCommand = cmd({
         network.port !== 0 ||
         network.hostname !== "127.0.0.1"
 
-      // Always start a real HTTP server for oc callbacks (micuDAC).
+      // Always start a real HTTP server for oc callbacks (DACMICU).
       // In internal mode, TUI still uses RPC for its own communication,
       // but oc needs a real HTTP endpoint to call back into.
       const serverResult = await client.call("server", { ...network, port: network.port || 0, hostname: network.hostname || "127.0.0.1" })

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
-# MICU DAC Fast Adoption Eval
+# DACMICU Fast Adoption Eval
 # Lightweight prompts that resolve quickly — tests whether the LLM
 # CHOOSES to use oc scripts, not whether the scripts work correctly.
 #
-# Usage: MODEL=anthropic/claude-sonnet-4-20250514 ./test/eval/micu-dac-fast.sh
+# Usage: MODEL=anthropic/claude-sonnet-4-20250514 ./test/eval/dacmicu-fast.sh
 
 set -euo pipefail
 
@@ -50,7 +50,7 @@ score_run() {
   fi
 }
 
-echo "=== MICU DAC Fast Eval ==="
+echo "=== DACMICU Fast Eval ==="
 echo "Run: $TIMESTAMP"
 echo "Model: ${MODEL:-default}"
 echo ""

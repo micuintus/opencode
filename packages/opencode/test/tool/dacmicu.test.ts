@@ -36,7 +36,7 @@ function ocsh(args: string[], env: Record<string, string> = {}) {
   })
 }
 
-describe("micu", () => {
+describe("DACMICU", () => {
   // ── CLI Unit Tests ──────────────────────────────────────────
 
   describe("oc CLI — env validation", () => {

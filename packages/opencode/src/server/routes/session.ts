@@ -1069,7 +1069,7 @@ export const SessionRoutes = lazy(() =>
         return c.json(true)
       },
     )
-    // micuDAC: AI judgment via child session
+    // DACMICU: AI judgment via child session
     .post(
       "/:sessionID/exec",
       describeRoute({
@@ -1253,7 +1253,7 @@ export const SessionRoutes = lazy(() =>
         })
       },
     )
-    // micuDAC: Direct tool execution — no LLM, deterministic
+    // DACMICU: Direct tool execution — no LLM, deterministic
     .post(
       "/:sessionID/tool",
       describeRoute({

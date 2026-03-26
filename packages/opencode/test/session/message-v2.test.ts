@@ -929,7 +929,7 @@ describe("session.message-v2.fromError", () => {
   })
 })
 
-describe("session.message-v2.toModelMessage — micuDAC oc filter", () => {
+describe("session.message-v2.toModelMessage — DACMICU oc filter", () => {
   test("filters out tool parts with metadata.oc = true", () => {
     const userID = "m-user"
     const assistantID = "m-assistant"

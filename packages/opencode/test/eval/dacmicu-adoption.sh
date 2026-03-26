@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# MICU DAC Adoption Eval
+# DACMICU Adoption Eval
 # Measures whether the LLM chooses bash+oc scripts over individual tool calls
 # for tasks that should naturally benefit from scripted approaches.
 #
-# Usage: ./test/eval/micu-dac-adoption.sh [--dry-run]
+# Usage: ./test/eval/dacmicu-adoption.sh [--dry-run]
 #
 # Scoring:
-#   2 = bash tool used with oc commands (full MICU DAC)
+#   2 = bash tool used with oc commands (full DACMICU)
 #   1 = bash tool used without oc (partial)
-#   0 = individual tool calls only (no MICU DAC adoption)
+#   0 = individual tool calls only (no DACMICU adoption)
 
 set -euo pipefail
 
@@ -78,7 +78,7 @@ score_run() {
   ' "$json_file" 2>/dev/null | jq -s 'length')
 
   if [ "$bash_with_oc" -gt 0 ]; then
-    echo "2"  # Full MICU DAC
+    echo "2"  # Full DACMICU
   elif [ "$bash_total" -gt 0 ] && [ "$individual_tools" -le 2 ]; then
     echo "1"  # Bash but no oc
   else
@@ -128,7 +128,7 @@ analyze_run() {
 }
 
 # --- Main ---
-echo "=== MICU DAC Adoption Eval ==="
+echo "=== DACMICU Adoption Eval ==="
 echo "Run: $TIMESTAMP"
 echo "Results: $RUN_DIR"
 echo ""
@@ -165,7 +165,7 @@ for i in "${!PROMPTS[@]}"; do
   total_score=$((total_score + score))
 
   case $score in
-    2) label="FULL MICU DAC" ;;
+    2) label="FULL DACMICU" ;;
     1) label="PARTIAL (bash, no oc)" ;;
     0) label="NO ADOPTION (individual tools)" ;;
   esac
@@ -191,7 +191,7 @@ done
 
 # Save summary
 cat > "$RUN_DIR/summary.txt" <<SUMMARY
-MICU DAC Adoption Eval — $TIMESTAMP
+DACMICU Adoption Eval — $TIMESTAMP
 Total: $total_score / $max_score (${pct}%)
 
 Per-prompt:

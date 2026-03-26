@@ -81,10 +81,10 @@ export const BashTool = Tool.define("bash", async () => {
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
-      // oc scripts get no effective timeout — Ralph loops can run for hours.
+      // DACMICU: oc scripts get NO timeout — Ralph loops can run for days.
       // The user aborts with Ctrl+C, not a timer.
       const usesOc = /\boc\s+(tool|prompt|agent|todo|status)\b/.test(params.command)
-      const timeout = params.timeout ?? (usesOc ? 4 * 60 * 60 * 1000 : DEFAULT_TIMEOUT)
+      const timeout = usesOc ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")
@@ -174,7 +174,7 @@ export const BashTool = Tool.define("bash", async () => {
         env: {
           ...process.env,
           ...shellEnv.env,
-          // micuDAC: Enable oc callbacks into the running openCode instance
+          // DACMICU: Enable oc callbacks into the running openCode instance
           OPENCODE_SESSION_ID: ctx.sessionID,
           OPENCODE_MESSAGE_ID: ctx.messageID,
           OPENCODE_AGENT: ctx.agent,
@@ -228,10 +228,13 @@ export const BashTool = Tool.define("bash", async () => {
 
       ctx.abort.addEventListener("abort", abortHandler, { once: true })
 
-      const timeoutTimer = setTimeout(() => {
-        timedOut = true
-        void kill()
-      }, timeout + 100)
+      // timeout === 0 means no timeout (DACMICU oc scripts)
+      const timeoutTimer = timeout > 0
+        ? setTimeout(() => {
+            timedOut = true
+            void kill()
+          }, timeout + 100)
+        : undefined
 
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
