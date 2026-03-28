@@ -48,12 +48,17 @@ _tool_body() {
   printf '%s' "$body"
 }
 
+# URL-encode a string for use in HTTP headers (requires jq)
+_urlencode() {
+  printf '%s' "$1" | jq -sRr @uri
+}
+
 # POST to /tool endpoint
 _tool_call() {
   name="$1" args_json="$2"
   curl -sS -X POST "$URL/tool" \
     -H "Content-Type: application/json" \
-    -H "x-opencode-directory: $PWD" \
+    -H "x-opencode-directory: $(_urlencode "$PWD")" \
     -d "$(_tool_body "$name" "$args_json")"
 }
 

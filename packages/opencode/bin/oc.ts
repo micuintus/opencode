@@ -164,7 +164,7 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
             })
             const base64 = Buffer.from(buf).toString("base64")
             const ext = fp.split(".").pop()?.toLowerCase() ?? ""
-            const mime = mimes[ext] ?? `application/${ext}`
+            const mime = mimes[ext] ?? "application/octet-stream"
             return { filename: fp.split("/").pop() ?? fp, mime, url: `data:${mime};base64,${base64}` }
           }),
         ),
@@ -222,8 +222,9 @@ const check = Effect.fn("oc.check")((rest: string[]) =>
 
     const response = yield* api("POST", `/session/${sid}/exec`, body)
 
-    const clean = response.trim().endsWith(sentinel) || response.trim() === sentinel
-    if (!clean && response.trim()) process.stdout.write(response.trimEnd() + "\n")
+    const trimmed = response.trim()
+    const clean = trimmed.endsWith(sentinel)
+    if (!clean && trimmed) process.stdout.write(trimmed + "\n")
     return !clean
   }),
 )
@@ -301,15 +302,17 @@ const program = Effect.gen(function* () {
       log(`tool ${name} ${tail[0]?.substring(0, 60) ?? ""}`)
       const result = yield* tool(name, args)
       const lines = result.split("\n")
-      const output: string[] = []
-      for (const line of lines) {
-        if (line.startsWith(truncated)) {
-          process.stderr.write(`\x1b[33m[oc] ${line.substring(truncated.length)}\x1b[0m\n`)
-          continue
-        }
-        output.push(line)
-      }
-      process.stdout.write(output.join("\n"))
+      process.stdout.write(
+        lines
+          .filter((line) => {
+            if (line.startsWith(truncated)) {
+              process.stderr.write(`\x1b[33m[oc] ${line.substring(truncated.length)}\x1b[0m\n`)
+              return false
+            }
+            return true
+          })
+          .join("\n"),
+      )
       break
     }
 
@@ -458,12 +461,19 @@ STATE:
   }
 })
 
-Effect.runPromise(program).catch((e: unknown) => {
-  const tag = (e as { _tag?: string })._tag
-  if (tag === "ValidationError" || tag === "ServerError" || tag === "ApiError") {
-    console.error((e as { message: string }).message)
-    process.exit(1)
+import { Exit, Cause, Option } from "effect"
+
+Effect.runPromiseExit(program).then((exit) => {
+  if (Exit.isSuccess(exit)) return
+  const failure = Cause.findErrorOption(exit.cause)
+  if (Option.isSome(failure)) {
+    const err = failure.value as { _tag?: string; message?: string }
+    if (err._tag === "ValidationError" || err._tag === "ServerError" || err._tag === "ApiError") {
+      console.error(err.message)
+      process.exit(1)
+    }
   }
-  console.error(`oc: unexpected error: ${e instanceof Error ? e.message : String(e)}`)
+  const squashed = Cause.squash(exit.cause)
+  console.error(`oc: unexpected error: ${squashed instanceof Error ? squashed.message : String(squashed)}`)
   process.exit(1)
 })
