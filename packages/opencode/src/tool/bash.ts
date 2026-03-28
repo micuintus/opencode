@@ -18,6 +18,10 @@ import { BashArity } from "@/permission/arity"
 import { Truncate } from "./truncate"
 import { Plugin } from "@/plugin"
 
+// Lazy import to avoid circular dependency (server → session → tool → server)
+let _server: typeof import("@/server/server") | undefined
+const getServer = () => (_server ??= require("@/server/server"))
+
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 
@@ -81,11 +85,20 @@ export const BashTool = Tool.define("bash", async () => {
       if (params.timeout !== undefined && params.timeout < 0) {
         throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
       }
-      const timeout = params.timeout ?? DEFAULT_TIMEOUT
+      // oc scripts get no timeout — loops can run indefinitely.
+      // The user aborts with Ctrl+C, not a timer.
       const tree = await parser().then((p) => p.parse(params.command))
       if (!tree) {
         throw new Error("Failed to parse command")
       }
+      const isOc = (text: string) => /^(oc|\.\/oc)$/.test(text)
+      const usesOc = tree.rootNode.descendantsOfType("command").some((n) => {
+        if (!n) return false
+        const name = n.childForFieldName("name") ?? n.firstChild
+        return name !== null && isOc(name.text)
+      })
+      const hasLoop = tree.rootNode.descendantsOfType("while_statement").length > 0
+      const timeout = usesOc && hasLoop ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
       const directories = new Set<string>()
       if (!Instance.containsPath(cwd)) directories.add(cwd)
       const patterns = new Set<string>()
@@ -171,6 +184,12 @@ export const BashTool = Tool.define("bash", async () => {
         env: {
           ...process.env,
           ...shellEnv.env,
+          // Enable oc callbacks into the running openCode instance
+          OPENCODE_SESSION_ID: ctx.sessionID,
+          OPENCODE_MESSAGE_ID: ctx.messageID,
+          OPENCODE_AGENT: ctx.agent,
+          OPENCODE_SERVER_URL: getServer().Server.url?.toString() ?? "",
+          PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
         detached: process.platform !== "win32",
@@ -219,14 +238,18 @@ export const BashTool = Tool.define("bash", async () => {
 
       ctx.abort.addEventListener("abort", abortHandler, { once: true })
 
-      const timeoutTimer = setTimeout(() => {
-        timedOut = true
-        void kill()
-      }, timeout + 100)
+      // timeout === 0 means no timeout (oc scripts)
+      const timer =
+        timeout > 0
+          ? setTimeout(() => {
+              timedOut = true
+              void kill()
+            }, timeout + 100)
+          : undefined
 
       await new Promise<void>((resolve, reject) => {
         const cleanup = () => {
-          clearTimeout(timeoutTimer)
+          clearTimeout(timer)
           ctx.abort.removeEventListener("abort", abortHandler)
         }
 
@@ -263,6 +286,8 @@ export const BashTool = Tool.define("bash", async () => {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
           exit: proc.exitCode,
           description: params.description,
+          // oc while loops can run for many iterations — don't truncate their output
+          ...(usesOc && hasLoop && { noTruncate: true }),
         },
         output,
       }
