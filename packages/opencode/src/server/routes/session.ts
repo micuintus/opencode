@@ -1326,6 +1326,7 @@ export const SessionRoutes = lazy(() =>
         const ctx = {
           sessionID: param.sessionID,
           messageID: msgID ?? MessageID.ascending(),
+          callID: partID ?? PartID.ascending(),
           agent,
           abort: c.req.raw.signal,
           messages: [] as MessageV2.WithParts[],

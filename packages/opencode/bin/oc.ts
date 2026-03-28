@@ -128,9 +128,9 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
       for (const line of raw.split("\n")) {
         if (line.startsWith(marker)) {
           piped.push(line.substring(marker.length))
-        } else {
-          lines.push(line)
+          continue
         }
+        lines.push(line)
       }
     }
 
@@ -290,12 +290,8 @@ const program = Effect.gen(function* () {
           const content = yield* stdin()
           const parsed = yield* Effect.try({
             try: () => JSON.parse(content),
-            catch: () => null,
+            catch: () => new ValidationError({ message: "oc tool batch: expects JSON from stdin" }),
           })
-          if (!parsed) {
-            console.error("oc tool batch: expects JSON from stdin")
-            process.exit(1)
-          }
           args = { tool_calls: parsed }
           break
         }
@@ -309,9 +305,9 @@ const program = Effect.gen(function* () {
       for (const line of lines) {
         if (line.startsWith(truncated)) {
           process.stderr.write(`\x1b[33m[oc] ${line.substring(truncated.length)}\x1b[0m\n`)
-        } else {
-          output.push(line)
+          continue
         }
+        output.push(line)
       }
       process.stdout.write(output.join("\n"))
       break
@@ -366,12 +362,8 @@ const program = Effect.gen(function* () {
           const response = yield* api("GET", `/session/${sid}/todo`)
           const parsed = yield* Effect.try({
             try: () => JSON.parse(response) as { content: string; status: string; priority: string }[],
-            catch: () => null,
+            catch: () => new ValidationError({ message: "oc todo done: invalid response from server" }),
           })
-          if (!parsed) {
-            console.error("oc todo done: invalid response from server")
-            process.exit(1)
-          }
           if (idx > parsed.length) {
             console.error(`oc todo done: index ${idx} out of range (max: ${parsed.length})`)
             process.exit(1)
@@ -412,7 +404,7 @@ const program = Effect.gen(function* () {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
             }),
-          catch: () => undefined as never,
+          catch: (e) => new ApiError({ message: e instanceof Error ? e.message : String(e) }),
         }),
       )
       break
