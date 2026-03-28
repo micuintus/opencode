@@ -1197,7 +1197,7 @@ export const SessionRoutes = lazy(() =>
               : undefined
 
           // Send periodic keepalive to prevent HTTP idle timeout (child sessions can take hours)
-          const keepalive = setInterval(() => stream.write(" "), 15_000)
+          const keepalive = setInterval(() => stream.write(" ").catch(() => {}), 15_000)
 
           try {
             const parts: Parameters<typeof SessionPrompt.prompt>[0]["parts"] = [{ type: "text", text: body.prompt }]

@@ -254,12 +254,12 @@ const program = Effect.gen(function* () {
       }
       let args: Body = {}
       switch (name) {
-        case "read":
-          args = {
-            filePath: tail[0],
-            limit: tail.includes("-n") ? parseInt(tail[tail.indexOf("-n") + 1]) : undefined,
-          }
+        case "read": {
+          const ni = tail.indexOf("-n")
+          const limit = ni >= 0 && ni + 1 < tail.length ? parseInt(tail[ni + 1]) : undefined
+          args = { filePath: tail[0], limit: Number.isNaN(limit) ? undefined : limit }
           break
+        }
         case "write": {
           const content = yield* stdin()
           args = { filePath: tail[0], content }
