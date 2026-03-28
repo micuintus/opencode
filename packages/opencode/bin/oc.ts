@@ -412,7 +412,7 @@ const program = Effect.gen(function* () {
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(body),
             }),
-          catch: () => Effect.succeed(undefined),
+          catch: () => undefined as never,
         }),
       )
       break
@@ -421,6 +421,7 @@ const program = Effect.gen(function* () {
     case "check": {
       const result = yield* check(rest)
       process.exit(result ? 0 : 1)
+      break
     }
 
     case "help":
@@ -465,9 +466,10 @@ STATE:
   }
 })
 
-Effect.runPromise(program).catch((e) => {
-  if (e._tag === "ValidationError" || e._tag === "ServerError" || e._tag === "ApiError") {
-    console.error(e.message)
+Effect.runPromise(program).catch((e: unknown) => {
+  const tag = (e as { _tag?: string })._tag
+  if (tag === "ValidationError" || tag === "ServerError" || tag === "ApiError") {
+    console.error((e as { message: string }).message)
     process.exit(1)
   }
   console.error(`oc: unexpected error: ${e instanceof Error ? e.message : String(e)}`)
