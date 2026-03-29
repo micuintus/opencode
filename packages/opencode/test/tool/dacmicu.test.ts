@@ -332,11 +332,12 @@ describe("oc CLI", () => {
     const SENTINEL = "NO_ISSUES_FOUND"
 
     function checkResult(response: string) {
-      const clean = response.trim().endsWith(SENTINEL) || response.trim() === SENTINEL
-      return { clean, assessment: clean ? "" : response.trimEnd() }
+      const trimmed = response.trim()
+      const clean = trimmed.includes(SENTINEL)
+      return { clean, assessment: clean ? "" : trimmed }
     }
 
-    test("response ending with sentinel → clean (exit 1, loop stops)", () => {
+    test("response ending with sentinel → clean", () => {
       const { clean } = checkResult("Everything looks good.\nNO_ISSUES_FOUND")
       expect(clean).toBe(true)
     })
@@ -351,16 +352,16 @@ describe("oc CLI", () => {
       expect(clean).toBe(true)
     })
 
+    test("sentinel at start followed by summary → clean", () => {
+      const { clean } = checkResult("NO_ISSUES_FOUND\n\nReview Summary\n- All looks good")
+      expect(clean).toBe(true)
+    })
+
     test("issues found → not clean (exit 0, loop continues)", () => {
       const response = "Found 3 issues:\n1) unused import\n2) missing validation"
       const { clean, assessment } = checkResult(response)
       expect(clean).toBe(false)
       expect(assessment).toContain("Found 3 issues")
-    })
-
-    test("sentinel in middle of text → not clean (must be at end)", () => {
-      const { clean } = checkResult("NO_ISSUES_FOUND but wait, found one more issue")
-      expect(clean).toBe(false)
     })
   })
 

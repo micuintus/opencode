@@ -122,7 +122,7 @@ export namespace SystemPrompt {
         `Exit condition is deterministic (exit code 0) — use bash directly, no oc check needed.`,
         `  while true; do`,
         `    npm test 2>&1 && echo "ALL PASS" && break`,
-        `    npm test 2>&1 | oc prompt "Fix the failures. Use oc tool edit."`,
+        `    npm test 2>&1 | oc prompt "Fix the failures."`,
         `  done`,
         `</example>`,
         `<example name="deterministic-batch">`,

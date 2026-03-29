@@ -223,7 +223,7 @@ const check = Effect.fn("oc.check")((rest: string[]) =>
     const response = yield* api("POST", `/session/${sid}/exec`, body)
 
     const trimmed = response.trim()
-    const clean = trimmed.endsWith(sentinel)
+    const clean = trimmed.includes(sentinel)
     if (!clean && trimmed) process.stdout.write(trimmed + "\n")
     return !clean
   }),
