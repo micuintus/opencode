@@ -100,11 +100,7 @@ export const BashTool = Tool.define("bash", async () => {
       const hasLoop = tree.rootNode.descendantsOfType("while_statement").length > 0
       const timeout = usesOc && hasLoop ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
 
-      // Set environment variable to signal Ralph loop to oc binary
       const isRalphLoop = usesOc && hasLoop
-      if (isRalphLoop) {
-        process.env.OPENCODE_RALPH_LOOP = "1"
-      }
 
       const directories = new Set<string>()
       if (!Instance.containsPath(cwd)) directories.add(cwd)
@@ -196,6 +192,7 @@ export const BashTool = Tool.define("bash", async () => {
           OPENCODE_MESSAGE_ID: ctx.messageID,
           OPENCODE_AGENT: ctx.agent,
           OPENCODE_SERVER_URL: (await getServer()).Server.url?.toString() ?? "",
+          ...(isRalphLoop ? { OPENCODE_RALPH_LOOP: "1" } : {}),
           PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],

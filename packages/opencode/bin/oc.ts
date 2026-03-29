@@ -36,15 +36,6 @@ interface StatusBody extends Record<string, unknown> {
   messageID?: string
 }
 
-interface TodoBody extends Record<string, unknown> {
-  content: string
-  status: string
-}
-
-interface TodoUpdateBody extends Record<string, unknown> {
-  todos: Array<{ content: string; status: string; priority: string }>
-}
-
 const server = process.env.OPENCODE_SERVER_URL
 const sid = process.env.OPENCODE_SESSION_ID
 const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()

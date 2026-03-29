@@ -124,13 +124,13 @@ describe("oc CLI", () => {
     })
 
     test("read parses file path", () => {
-      const result = oc(["tool", "read", "/tmp/test.ts"])
+      const result = oc(["tool", "read", "src/index.ts"])
       expect(result.status).not.toBe(0)
       expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
 
     test("glob parses pattern and path", () => {
-      const result = oc(["tool", "glob", "*.ts", "/src"])
+      const result = oc(["tool", "glob", "*.ts", "src"])
       expect(result.status).not.toBe(0)
       expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
     })
@@ -214,7 +214,7 @@ describe("oc CLI", () => {
 
   describe("oc CLI — connection error handling", () => {
     test("connection refused gives user-friendly error", () => {
-      const result = oc(["tool", "read", "/tmp/test.ts"])
+      const result = oc(["tool", "read", "src/index.ts"])
       expect(result.status).not.toBe(0)
       expect(result.stderr.toString()).toMatch(/server (error|returned HTTP)/)
       // Should NOT contain raw stack traces
