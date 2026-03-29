@@ -16,7 +16,7 @@
   },
   "bin": {
     "opencode": "./bin/opencode",
-    "oc": "./bin/oc.ts"
+    "oc": "./bin/oc"
   },
   "exports": {
     "./*": "./src/*.ts"

@@ -4,6 +4,7 @@
 // handles complex operations: prompt, agent, todo, status, and tool fallback.
 
 import { Effect, Schema } from "effect"
+import { resolve, normalize, relative } from "path"
 
 class ServerError extends Schema.TaggedErrorClass<ServerError>()("ServerError", { message: Schema.String }) {}
 class ValidationError extends Schema.TaggedErrorClass<ValidationError>()("ValidationError", {
@@ -49,6 +50,24 @@ const sid = process.env.OPENCODE_SESSION_ID
 const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()
 const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
+
+// Security: Path validation to prevent path traversal attacks
+const sanitizePath = (path: string): string => {
+  if (!path || path.trim() === "") {
+    throw new ValidationError({ message: "Invalid path: empty or null" })
+  }
+
+  const normalizedPath = normalize(path)
+  const resolvedPath = resolve(dir, normalizedPath)
+
+  // Ensure the resolved path is within the working directory
+  const rel = relative(dir, resolvedPath)
+  if (rel.startsWith("../") || rel === "..") {
+    throw new ValidationError({ message: `Path traversal attempt blocked: ${path}` })
+  }
+
+  return resolvedPath
+}
 
 const marker = "\x00OC_FILE\x00:"
 const trunc = "\x00OC_TRUNCATED\x00:"
@@ -185,8 +204,9 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
       body.files = yield* Effect.all(
         paths.map((fp) =>
           Effect.gen(function* () {
+            const safePath = sanitizePath(fp)
             const buf = yield* Effect.tryPromise({
-              try: () => Bun.file(fp).arrayBuffer(),
+              try: () => Bun.file(safePath).arrayBuffer(),
               catch: (e) =>
                 new ApiError({ message: `Failed to read file ${fp}: ${e instanceof Error ? e.message : String(e)}` }),
             })
@@ -283,12 +303,14 @@ const check = Effect.fn("oc.check")((rest: string[]) =>
 
 const program = Effect.gen(function* () {
   if (!server) {
-    console.error("oc: OPENCODE_SERVER_URL not set — are you running inside an openCode bash tool?")
-    process.exit(1)
+    return yield* new ServerError({
+      message: "OPENCODE_SERVER_URL not set — are you running inside an openCode bash tool?",
+    })
   }
   if (!sid) {
-    console.error("oc: OPENCODE_SESSION_ID not set — are you running inside an openCode bash tool?")
-    process.exit(1)
+    return yield* new ServerError({
+      message: "OPENCODE_SESSION_ID not set — are you running inside an openCode bash tool?",
+    })
   }
 
   const cmd = process.argv[2]
@@ -304,27 +326,37 @@ const program = Effect.gen(function* () {
       const name = rest[0]
       const tail = rest.slice(1)
       if (!name) {
-        console.error("oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash")
-        process.exit(1)
+        return yield* new ValidationError({
+          message: "oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash",
+        })
       }
       let args: Record<string, unknown> = {}
       switch (name) {
         case "read": {
+          if (!tail[0]) {
+            return yield* new ValidationError({ message: "oc tool read: file path required" })
+          }
           const ni = tail.indexOf("-n")
           let limit: number | undefined
           if (ni >= 0 && ni + 1 < tail.length) {
             const parsed = parseInt(tail[ni + 1])
             limit = Number.isNaN(parsed) ? undefined : parsed
           }
-          args = { filePath: tail[0], limit }
+          args = { filePath: sanitizePath(tail[0]), limit }
           break
         }
         case "write": {
+          if (!tail[0]) {
+            return yield* new ValidationError({ message: "oc tool write: file path required" })
+          }
           const content = yield* stdin()
-          args = { filePath: tail[0], content }
+          args = { filePath: sanitizePath(tail[0]), content }
           break
         }
         case "edit": {
+          if (!tail[0]) {
+            return yield* new ValidationError({ message: "oc tool edit: file path required" })
+          }
           let old = ""
           let rep = ""
           for (let i = 1; i < tail.length; i++) {
@@ -337,25 +369,59 @@ const program = Effect.gen(function* () {
               continue
             }
           }
-          args = { filePath: tail[0], oldString: old, newString: rep }
+          args = { filePath: sanitizePath(tail[0]), oldString: old, newString: rep }
           break
         }
         case "grep":
-          args = { pattern: tail[0], path: tail[1] ?? "." }
+          if (!tail[0]) {
+            return yield* new ValidationError({ message: "oc tool grep: pattern required" })
+          }
+          const grepPath = tail[1] ?? "."
+          args = { pattern: tail[0], path: sanitizePath(grepPath) }
           break
         case "glob":
-          args = { pattern: tail[0], path: tail[1] }
+          if (!tail[0]) {
+            return yield* new ValidationError({ message: "oc tool glob: pattern required" })
+          }
+          const globPath = tail[1] ? sanitizePath(tail[1]) : undefined
+          args = { pattern: tail[0], path: globPath }
           break
         case "bash": {
           const command = tail.join(" ")
-          args = { command, description: `oc bash: ${command.substring(0, 50)}` }
+          if (!command.trim()) {
+            return yield* new ValidationError({ message: "oc tool bash: command required" })
+          }
+          // Basic command injection protection - block dangerous patterns
+          const dangerous = [";", "&&", "||", "|", ">", ">>", "<", "$(", "`", "&"]
+          if (dangerous.some((pattern) => command.includes(pattern))) {
+            console.warn("Warning: Command contains potentially dangerous operators. Use with caution.")
+          }
+          args = { command: command.trim(), description: `oc bash: ${command.substring(0, 50)}` }
           break
         }
         case "batch": {
           const content = yield* stdin()
+          if (!content.trim()) {
+            return yield* new ValidationError({ message: "oc tool batch: no JSON content provided" })
+          }
+          // Limit JSON size to prevent DoS
+          if (content.length > 1024 * 1024) {
+            // 1MB limit
+            return yield* new ValidationError({ message: "oc tool batch: JSON too large (max 1MB)" })
+          }
           const parsed = yield* Effect.try({
-            try: () => JSON.parse(content),
-            catch: () => new ValidationError({ message: "oc tool batch: expects JSON from stdin" }),
+            try: () => {
+              const data = JSON.parse(content)
+              // Basic structure validation
+              if (!Array.isArray(data)) {
+                throw new Error("Expected array of tool calls")
+              }
+              return data
+            },
+            catch: (e) =>
+              new ValidationError({
+                message: `oc tool batch: invalid JSON - ${e instanceof Error ? e.message : String(e)}`,
+              }),
           })
           args = { tool_calls: parsed }
           break
