@@ -1131,13 +1131,23 @@ export const SessionRoutes = lazy(() =>
         const parent = c.req.valid("param").sessionID
         const body = c.req.valid("json")
 
-        // Detect Ralph loop (while loop with oc check) to disable provider timeout
-        const noTimeout = c.req.header("x-opencode-ralph-loop") === "true"
+        // Detect oc command in script to disable provider timeout (any long-running operation)
+        const noTimeout = c.req.header("x-opencode-no-timeout") === "true"
 
         await Session.get(parent)
 
         // Inherit model from parent session if not explicitly provided
-        const model = body.model ?? (await MessageV2.model(parent))
+        let model = body.model
+        if (!model) {
+          const msgs = await Session.messages({ sessionID: parent })
+          for (let i = msgs.length - 1; i >= 0; i--) {
+            const info = msgs[i].info
+            if (info.role === "user" && info.model) {
+              model = info.model
+              break
+            }
+          }
+        }
 
         const child = await Session.create({
           parentID: parent,

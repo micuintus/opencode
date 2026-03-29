@@ -97,10 +97,7 @@ export const BashTool = Tool.define("bash", async () => {
         const name = n.childForFieldName("name") ?? n.firstChild
         return name !== null && isOc(name.text)
       })
-      const hasLoop = tree.rootNode.descendantsOfType("while_statement").length > 0
-      const timeout = usesOc && hasLoop ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
-
-      const isRalphLoop = usesOc && hasLoop
+      const timeout = usesOc ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
 
       const directories = new Set<string>()
       if (!Instance.containsPath(cwd)) directories.add(cwd)
@@ -192,7 +189,7 @@ export const BashTool = Tool.define("bash", async () => {
           OPENCODE_MESSAGE_ID: ctx.messageID,
           OPENCODE_AGENT: ctx.agent,
           OPENCODE_SERVER_URL: (await getServer()).Server.url?.toString() ?? "",
-          ...(isRalphLoop ? { OPENCODE_RALPH_LOOP: "1" } : {}),
+          ...(usesOc ? { OPENCODE_NO_TIMEOUT: "1" } : {}),
           PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -290,8 +287,8 @@ export const BashTool = Tool.define("bash", async () => {
           output: output.length > MAX_METADATA_LENGTH ? output.slice(0, MAX_METADATA_LENGTH) + "\n\n..." : output,
           exit: proc.exitCode,
           description: params.description,
-          // oc while loops can run for many iterations — don't truncate their output
-          ...(usesOc && hasLoop && { noTruncate: true }),
+          // oc calls can run for many iterations — don't truncate their output
+          ...(usesOc && { noTruncate: true }),
         },
         output,
       }

@@ -22,39 +22,36 @@ describe("Ralph Loop Timeout Prevention", () => {
       return name !== null && isOc(name.text)
     })
     const hasLoop = tree!.rootNode.descendantsOfType("while_statement").length > 0
-    const timeout = usesOc && hasLoop ? 0 : 120000
+    const timeout = usesOc ? 0 : 120000
 
     return { usesOc, hasLoop, timeout }
   }
 
-  test("bash tool should detect oc+while and set infinite timeout", () => {
+  test("bash tool should detect ANY oc command and set infinite timeout", () => {
     const ralphLoop = `while oc check "find and fix issues"; do
       oc status "round complete"
     done`
 
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(ralphLoop)
+    const { usesOc, timeout } = analyzeTimeout(ralphLoop)
 
     expect(usesOc).toBe(true)
-    expect(hasLoop).toBe(true)
-    expect(timeout).toBe(0) // infinite timeout
+    expect(timeout).toBe(0) // infinite timeout - ANY oc command
   })
 
   test("regular bash commands should have normal timeout", () => {
     const regularCommand = "echo 'hello' && ls -la"
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(regularCommand)
+    const { usesOc, timeout } = analyzeTimeout(regularCommand)
 
     expect(usesOc).toBe(false)
-    expect(hasLoop).toBe(false)
     expect(timeout).toBe(120000) // normal 2 minute timeout
   })
 
-  test("oc without while should have normal timeout", () => {
+  test("oc without while should also have infinite timeout", () => {
     const ocWithoutLoop = "oc check 'single check' && echo done"
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(ocWithoutLoop)
+    const { usesOc, timeout } = analyzeTimeout(ocWithoutLoop)
 
     expect(usesOc).toBe(true)
-    expect(hasLoop).toBe(false)
-    expect(timeout).toBe(120000) // normal timeout because no while loop
+    expect(timeout).toBe(0) // infinite timeout - ANY oc can be long-running
   })
 
   test("while without oc should have normal timeout", () => {
@@ -62,10 +59,9 @@ describe("Ralph Loop Timeout Prevention", () => {
       echo "running..."
       sleep 1
     done`
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(whileWithoutOc)
+    const { usesOc, timeout } = analyzeTimeout(whileWithoutOc)
 
     expect(usesOc).toBe(false)
-    expect(hasLoop).toBe(true)
     expect(timeout).toBe(120000) // normal timeout because no oc
   })
 
@@ -77,21 +73,19 @@ describe("Ralph Loop Timeout Prevention", () => {
       git log --oneline -1
     done
     echo "Analysis complete!"`
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(complexRalph)
+    const { usesOc, timeout } = analyzeTimeout(complexRalph)
 
     expect(usesOc).toBe(true)
-    expect(hasLoop).toBe(true)
-    expect(timeout).toBe(0) // infinite timeout for complex Ralph loop
+    expect(timeout).toBe(0) // infinite timeout for ANY oc command
   })
 
   test("./oc variant should also be detected", () => {
     const dotSlashOc = `while ./oc check "test"; do
       echo "loop"
     done`
-    const { usesOc, hasLoop, timeout } = analyzeTimeout(dotSlashOc)
+    const { usesOc, timeout } = analyzeTimeout(dotSlashOc)
 
     expect(usesOc).toBe(true)
-    expect(hasLoop).toBe(true)
-    expect(timeout).toBe(0) // infinite timeout for ./oc variant
+    expect(timeout).toBe(0) // infinite timeout for ANY oc command
   })
 })
