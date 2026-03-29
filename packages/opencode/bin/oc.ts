@@ -506,12 +506,12 @@ const program = Effect.gen(function* () {
           parsed[idx - 1].status = "completed"
           log(`todo done ${idx} ✓ ${parsed[idx - 1].content.substring(0, 40)}`)
           yield* api("PUT", `/session/${sid}/todo`, { todos: parsed })
-          console.log(`Marked todo ${idx} as completed: ${parsed[idx - 1].content}`)
+          log(`Marked todo ${idx} as completed: ${parsed[idx - 1].content}`)
           break
         }
         case "clear": {
           yield* api("PUT", `/session/${sid}/todo`, { todos: [] })
-          console.log("Cleared all todos")
+          log("Cleared all todos")
           break
         }
         default:
@@ -572,7 +572,7 @@ DETERMINISTIC TOOLS:
   oc tool batch                            Execute JSON tool calls from stdin
 
 ASSESSMENT + BOOLEAN (grep pattern — findings on stdout, boolean on exit code):
-  oc check "question"                      Assessment → stdout, exit 0 (yes) / 1 (no)
+  oc check "question"                      Assessment → stdout, exit 0 (issues found) / 1 (clean)
   oc check -m provider/model "question"    Use specific model for assessment
   data | oc check "question"               Piped context
   while a=\$(oc check "issues?"); do        Loop pattern: capture assessment,

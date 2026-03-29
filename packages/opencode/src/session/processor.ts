@@ -347,7 +347,7 @@ export namespace SessionProcessor {
                 },
                 { text: ctx.currentText.text },
               )).text
-              ctx.currentText.time = { start: Date.now(), end: Date.now() }
+              ctx.currentText.time = { start: ctx.currentText.time?.start ?? Date.now(), end: Date.now() }
               if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
               yield* session.updatePart(ctx.currentText)
               ctx.currentText = undefined
@@ -435,6 +435,8 @@ export namespace SessionProcessor {
           yield* Effect.gen(function* () {
             ctx.currentText = undefined
             ctx.reasoningMap = {}
+            ctx.blocked = false
+            ctx.toolcalls = {}
             const stream = llm.stream(streamInput)
 
             yield* stream.pipe(
