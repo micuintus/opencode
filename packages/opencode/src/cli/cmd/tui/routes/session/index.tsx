@@ -1618,9 +1618,7 @@ function GenericTool(props: ToolProps<any>) {
 
 function Status(props: ToolProps<Tool.Info>) {
   const { theme } = useTheme()
-  const message = createMemo(
-    () => ((props.input as Record<string, unknown>)?.message as string | undefined) ?? props.output ?? "",
-  )
+  const message = createMemo(() => (props.input as { message?: string })?.message ?? props.output ?? "")
   return (
     <text paddingLeft={3} fg={theme.textMuted}>
       <span style={{ bold: true, fg: theme.accent }}>●</span> {message()}

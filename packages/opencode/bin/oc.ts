@@ -4,7 +4,7 @@
 // handles complex operations: prompt, agent, todo, status, and tool fallback.
 
 import { Effect, Exit, Cause, Option, Schema } from "effect"
-import { resolve, normalize, relative } from "path"
+import { resolve, normalize } from "path"
 
 class ServerError extends Schema.TaggedErrorClass<ServerError>()("ServerError", { message: Schema.String }) {}
 class ValidationError extends Schema.TaggedErrorClass<ValidationError>()("ValidationError", {
@@ -43,23 +43,14 @@ const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 const noTimeout = process.env.OPENCODE_NO_TIMEOUT === "1"
 
-// Security: Path validation to prevent path traversal attacks.
-// Throws ValidationError on failure — inside Effect.gen this becomes a
-// defect caught by Cause.squash in the exit handler.
+// Path resolution: resolve relative paths against cwd; reject empty strings.
+// Absolute paths (e.g. /tmp/foo) are passed through unchanged — the server-side
+// tool already enforces permissions via Permission.ask.
 const sanitizePath = (p: string): string => {
   if (!p || p.trim() === "") {
     throw new ValidationError({ message: "Invalid path: empty or null" })
   }
-
-  const resolved = resolve(dir, normalize(p))
-
-  // Ensure the resolved path is within the working directory
-  const rel = relative(dir, resolved)
-  if (rel.startsWith("../") || rel === "..") {
-    throw new ValidationError({ message: `Path traversal attempt blocked: ${p}` })
-  }
-
-  return resolved
+  return resolve(dir, normalize(p))
 }
 
 const marker = "\x00OC_FILE\x00:"

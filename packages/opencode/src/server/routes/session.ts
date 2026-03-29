@@ -1114,17 +1114,6 @@ export const SessionRoutes = lazy(() =>
             .optional()
             .describe("Force structured output via StructuredOutput tool (e.g. for oc check boolean)"),
           messageID: z.string().optional().describe("Parent message ID — creates visual ToolPart when present"),
-          followUp: z
-            .object({
-              prompt: z
-                .string()
-                .describe("Follow-up prompt sent to the SAME child session after the main prompt completes"),
-              format: z.object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.unknown()) }),
-            })
-            .optional()
-            .describe(
-              "Same-session follow-up for cheap boolean evaluation (warm KV cache). Used by oc check grep pattern.",
-            ),
         }),
       ),
       async (c) => {
@@ -1237,27 +1226,7 @@ export const SessionRoutes = lazy(() =>
                 : ((msg.parts.findLast((p) => p.type === "text") as { type: "text"; text: string } | undefined)?.text ??
                   "")
 
-            let extra = ""
-            if (body.followUp) {
-              try {
-                const follow = await SessionPrompt.prompt({
-                  sessionID: child.id,
-                  parts: [{ type: "text", text: body.followUp.prompt }],
-                  format: { ...body.followUp.format, retryCount: 1 },
-                  model,
-                  noTimeout,
-                })
-                const structured = follow.info.role === "assistant" ? follow.info.structured : undefined
-                extra =
-                  structured !== undefined
-                    ? `\n\x00OC_FOLLOWUP\x00:${JSON.stringify(structured)}`
-                    : `\n\x00OC_FOLLOWUP\x00:${(follow.parts.findLast((p) => p.type === "text") as { type: "text"; text: string } | undefined)?.text ?? ""}`
-              } catch (e) {
-                log.warn("oc check follow-up failed", { error: e instanceof Error ? e.message : String(e) })
-              }
-            }
-
-            const result = out + extra
+            const result = out
 
             await emit({
               status: "completed",
