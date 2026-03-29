@@ -117,7 +117,9 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
           headers,
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,
-        })
+          // Disable Bun's native TCP-level timeout for exec ops — see execTimeoutOpt
+          ...execTimeoutOpt(path),
+        } as RequestInit)
 
         return fetchPromise.finally(() => {
           if (timeoutId) clearTimeout(timeoutId)
@@ -615,17 +617,23 @@ STATE:
 
 import { Exit, Cause, Option } from "effect"
 
-Effect.runPromiseExit(program).then((exit) => {
-  if (Exit.isSuccess(exit)) return
-  const failure = Cause.findErrorOption(exit.cause)
-  if (Option.isSome(failure)) {
-    const err = failure.value as { _tag?: string; message?: string }
-    if (err._tag === "ValidationError" || err._tag === "ServerError" || err._tag === "ApiError") {
-      console.error(err.message)
-      process.exit(1)
+// Exported for testing: returns { timeout: false } for exec paths so Bun's native
+// TCP timeout is disabled on long-running oc check / oc prompt calls.
+// Tool paths return {} and rely on the 60s AbortController timer instead.
+export const execTimeoutOpt = (path: string): { timeout?: false } => (path.includes("/exec") ? { timeout: false } : {})
+
+if (import.meta.main)
+  Effect.runPromiseExit(program).then((exit) => {
+    if (Exit.isSuccess(exit)) return
+    const failure = Cause.findErrorOption(exit.cause)
+    if (Option.isSome(failure)) {
+      const err = failure.value as { _tag?: string; message?: string }
+      if (err._tag === "ValidationError" || err._tag === "ServerError" || err._tag === "ApiError") {
+        console.error(err.message)
+        process.exit(1)
+      }
     }
-  }
-  const squashed = Cause.squash(exit.cause)
-  console.error(`oc: unexpected error: ${squashed instanceof Error ? squashed.message : String(squashed)}`)
-  process.exit(1)
-})
+    const squashed = Cause.squash(exit.cause)
+    console.error(`oc: unexpected error: ${squashed instanceof Error ? squashed.message : String(squashed)}`)
+    process.exit(1)
+  })
