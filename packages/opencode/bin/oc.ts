@@ -14,7 +14,35 @@ class ApiError extends Schema.TaggedErrorClass<ApiError>()("ApiError", {
   status: Schema.optional(Schema.Number),
 }) {}
 
-type Body = Record<string, unknown>
+interface ExecBody extends Record<string, unknown> {
+  prompt: string
+  system?: string
+  agent?: string
+  messageID?: string
+  model?: { providerID: string; modelID: string }
+  files?: Array<{ filename: string; mime: string; url: string }>
+}
+
+interface ToolBody extends Record<string, unknown> {
+  name: string
+  args: Record<string, unknown>
+  agent: string
+  messageID?: string
+}
+
+interface StatusBody extends Record<string, unknown> {
+  message: string
+  messageID?: string
+}
+
+interface TodoBody extends Record<string, unknown> {
+  content: string
+  status: string
+}
+
+interface TodoUpdateBody extends Record<string, unknown> {
+  todos: Array<{ content: string; status: string; priority: string }>
+}
 
 const server = process.env.OPENCODE_SERVER_URL
 const sid = process.env.OPENCODE_SESSION_ID
@@ -23,7 +51,7 @@ const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 
 const marker = "\x00OC_FILE\x00:"
-const truncated = "\x00OC_TRUNCATED\x00:"
+const trunc = "\x00OC_TRUNCATED\x00:"
 
 const mimes: Record<string, string> = {
   pdf: "application/pdf",
@@ -42,7 +70,7 @@ const parse = (model: string) => {
   return { providerID: model.slice(0, i), modelID: model.slice(i + 1) }
 }
 
-const api = Effect.fn("oc.api")((method: string, path: string, body?: Body) =>
+const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<string, unknown>) =>
   Effect.gen(function* () {
     if (!server)
       return yield* new ServerError({
@@ -74,10 +102,10 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Body) =>
   }),
 )
 
-const tool = Effect.fn("oc.tool")((name: string, args: Body) =>
+const tool = Effect.fn("oc.tool")((name: string, args: Record<string, unknown>) =>
   Effect.gen(function* () {
     const agent = process.env.OPENCODE_AGENT ?? "build"
-    const body: Body = { name, args, agent, ...(msg ? { messageID: msg } : {}) }
+    const body: ToolBody = { name, args, agent, ...(msg ? { messageID: msg } : {}) }
     return yield* api("POST", `/session/${sid}/tool`, body)
   }),
 )
@@ -141,7 +169,7 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
       return yield* new ValidationError({ message: "oc prompt: no prompt text provided" })
     }
 
-    const body: Body = { prompt: text }
+    const body: ExecBody = { prompt: text }
     if (system) body.system = system
     if (via) body.agent = via
     if (msg) body.messageID = msg
@@ -152,19 +180,43 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
       body.model = parsed
     }
 
-    const attached = [...files, ...piped]
-    if (attached.length > 0) {
+    const paths = [...files, ...piped]
+    if (paths.length > 0) {
       body.files = yield* Effect.all(
-        attached.map((fp) =>
+        paths.map((fp) =>
           Effect.gen(function* () {
             const buf = yield* Effect.tryPromise({
               try: () => Bun.file(fp).arrayBuffer(),
               catch: (e) =>
                 new ApiError({ message: `Failed to read file ${fp}: ${e instanceof Error ? e.message : String(e)}` }),
             })
+
+            // Validate file size (max 10MB)
+            const maxSize = 10 * 1024 * 1024
+            if (buf.byteLength > maxSize) {
+              return yield* new ValidationError({
+                message: `oc prompt: file ${fp} too large (${Math.round(buf.byteLength / 1024 / 1024)}MB, max 10MB)`,
+              })
+            }
+
             const base64 = Buffer.from(buf).toString("base64")
             const ext = fp.split(".").pop()?.toLowerCase() ?? ""
             const mime = mimes[ext] ?? "application/octet-stream"
+
+            // Validate MIME type for known extensions
+            const allowedTypes = [
+              "application/pdf",
+              "image/png",
+              "image/jpeg",
+              "text/plain",
+              "application/octet-stream",
+            ]
+            if (!allowedTypes.includes(mime)) {
+              return yield* new ValidationError({
+                message: `oc prompt: unsupported file type ${mime} for ${fp}`,
+              })
+            }
+
             return { filename: fp.split("/").pop() ?? fp, mime, url: `data:${mime};base64,${base64}` }
           }),
         ),
@@ -204,7 +256,7 @@ const check = Effect.fn("oc.check")((rest: string[]) =>
     log(`check "${question.substring(0, 60)}"`)
 
     const sentinel = "NO_ISSUES_FOUND"
-    const body: Body = {
+    const body: ExecBody = {
       prompt: [
         question,
         "",
@@ -239,7 +291,8 @@ const program = Effect.gen(function* () {
     process.exit(1)
   }
 
-  const [, , cmd, ...rest] = process.argv
+  const cmd = process.argv[2]
+  const rest = process.argv.slice(3)
 
   switch (cmd) {
     case "prompt": {
@@ -248,17 +301,22 @@ const program = Effect.gen(function* () {
     }
 
     case "tool": {
-      const [name, ...tail] = rest
+      const name = rest[0]
+      const tail = rest.slice(1)
       if (!name) {
         console.error("oc tool: no tool name. Available: read, write, edit, grep, glob, batch, bash")
         process.exit(1)
       }
-      let args: Body = {}
+      let args: Record<string, unknown> = {}
       switch (name) {
         case "read": {
           const ni = tail.indexOf("-n")
-          const limit = ni >= 0 && ni + 1 < tail.length ? parseInt(tail[ni + 1]) : undefined
-          args = { filePath: tail[0], limit: Number.isNaN(limit) ? undefined : limit }
+          let limit: number | undefined
+          if (ni >= 0 && ni + 1 < tail.length) {
+            const parsed = parseInt(tail[ni + 1])
+            limit = Number.isNaN(parsed) ? undefined : parsed
+          }
+          args = { filePath: tail[0], limit }
           break
         }
         case "write": {
@@ -270,8 +328,14 @@ const program = Effect.gen(function* () {
           let old = ""
           let rep = ""
           for (let i = 1; i < tail.length; i++) {
-            if ((tail[i] === "--old" || tail[i] === "-o") && i + 1 < tail.length) old = tail[++i]
-            else if ((tail[i] === "--new" || tail[i] === "-n") && i + 1 < tail.length) rep = tail[++i]
+            if ((tail[i] === "--old" || tail[i] === "-o") && i + 1 < tail.length) {
+              old = tail[++i]
+              continue
+            }
+            if ((tail[i] === "--new" || tail[i] === "-n") && i + 1 < tail.length) {
+              rep = tail[++i]
+              continue
+            }
           }
           args = { filePath: tail[0], oldString: old, newString: rep }
           break
@@ -305,8 +369,8 @@ const program = Effect.gen(function* () {
       process.stdout.write(
         lines
           .filter((line) => {
-            if (line.startsWith(truncated)) {
-              process.stderr.write(`\x1b[33m[oc] ${line.substring(truncated.length)}\x1b[0m\n`)
+            if (line.startsWith(trunc)) {
+              process.stderr.write(`\x1b[33m[oc] ${line.substring(trunc.length)}\x1b[0m\n`)
               return false
             }
             return true
@@ -317,7 +381,8 @@ const program = Effect.gen(function* () {
     }
 
     case "agent": {
-      const [type, ...tail] = rest
+      const type = rest[0]
+      const tail = rest.slice(1)
       if (!type) {
         console.error("oc agent: usage: oc agent <type> <prompt>")
         process.exit(1)
@@ -329,7 +394,7 @@ const program = Effect.gen(function* () {
         process.exit(1)
       }
       log(`agent ${type} "${tail.join(" ").substring(0, 50)}"`)
-      const body: Body = { prompt: text, agent: type }
+      const body: ExecBody = { prompt: text, agent: type }
       if (msg) body.messageID = msg
       const result = yield* api("POST", `/session/${sid}/exec`, body)
       process.stdout.write(result)
@@ -337,7 +402,8 @@ const program = Effect.gen(function* () {
     }
 
     case "todo": {
-      const [sub, ...tail] = rest
+      const sub = rest[0]
+      const tail = rest.slice(1)
       switch (sub) {
         case "add": {
           const content = tail.join(" ")
@@ -396,7 +462,7 @@ const program = Effect.gen(function* () {
         process.exit(1)
       }
       log(`status: ${message}`)
-      const body: Body = { message }
+      const body: StatusBody = { message }
       if (msg) body.messageID = msg
       // Fire-and-forget: post status to server for TUI visibility, but don't fail the script
       yield* Effect.ignore(
