@@ -97,12 +97,30 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
       })
 
     const res = yield* Effect.tryPromise({
-      try: () =>
-        fetch(new URL(path, server).toString(), {
+      try: () => {
+        // For exec operations (oc check, oc prompt), use no timeout to support Ralph loops
+        // For tool operations, use shorter timeout since they should be fast
+        const isExecOperation = path.includes("/exec")
+        const controller = new AbortController()
+        let timeoutId: Timer | undefined
+
+        if (!isExecOperation) {
+          // Tool operations get 60 second timeout
+          timeoutId = setTimeout(() => controller.abort(), 60_000)
+        }
+        // Exec operations get no timeout (infinite) to support Ralph loops
+
+        const fetchPromise = fetch(new URL(path, server).toString(), {
           method,
           headers: { "Content-Type": "application/json", "x-opencode-directory": encodeURIComponent(dir) },
           body: body ? JSON.stringify(body) : undefined,
-        }),
+          signal: controller.signal,
+        })
+
+        return fetchPromise.finally(() => {
+          if (timeoutId) clearTimeout(timeoutId)
+        })
+      },
       catch: (e) => new ApiError({ message: e instanceof Error ? e.message : String(e) }),
     })
 
