@@ -43,7 +43,9 @@ const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
 const noTimeout = process.env.OPENCODE_NO_TIMEOUT === "1"
 
-// Security: Path validation to prevent path traversal attacks
+// Security: Path validation to prevent path traversal attacks.
+// Throws ValidationError on failure — inside Effect.gen this becomes a
+// defect caught by Cause.squash in the exit handler.
 const sanitizePath = (p: string): string => {
   if (!p || p.trim() === "") {
     throw new ValidationError({ message: "Invalid path: empty or null" })
@@ -598,18 +600,30 @@ import { Exit, Cause, Option } from "effect"
 // Tool paths return {} and rely on the 60s AbortController timer instead.
 export const execTimeoutOpt = (path: string): { timeout?: false } => (path.includes("/exec") ? { timeout: false } : {})
 
+const isKnown = (err: unknown): err is { _tag: string; message: string } => {
+  if (typeof err !== "object" || err === null) return false
+  const obj = err as Record<string, unknown>
+  return (
+    (obj._tag === "ValidationError" || obj._tag === "ServerError" || obj._tag === "ApiError") &&
+    typeof obj.message === "string"
+  )
+}
+
 if (import.meta.main)
   Effect.runPromiseExit(program).then((exit) => {
     if (Exit.isSuccess(exit)) return
+    // Check typed failures first (from yield* new MyError(...))
     const failure = Cause.findErrorOption(exit.cause)
-    if (Option.isSome(failure)) {
-      const err = failure.value as { _tag?: string; message?: string }
-      if (err._tag === "ValidationError" || err._tag === "ServerError" || err._tag === "ApiError") {
-        console.error(err.message)
-        process.exit(1)
-      }
+    if (Option.isSome(failure) && isKnown(failure.value)) {
+      console.error(failure.value.message)
+      process.exit(1)
     }
+    // Also check defects — sanitizePath throws inside Effect.gen
     const squashed = Cause.squash(exit.cause)
+    if (isKnown(squashed)) {
+      console.error(squashed.message)
+      process.exit(1)
+    }
     console.error(`oc: unexpected error: ${squashed instanceof Error ? squashed.message : String(squashed)}`)
     process.exit(1)
   })

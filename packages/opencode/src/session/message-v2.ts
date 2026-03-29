@@ -875,25 +875,6 @@ export namespace MessageV2 {
     }
   })
 
-  export const model = fn(SessionID.zod, async (sessionID) => {
-    const row = Database.use((db) =>
-      db
-        .select()
-        .from(MessageTable)
-        .where(eq(MessageTable.session_id, sessionID))
-        .orderBy(MessageTable.time_created, MessageTable.id)
-        .limit(100)
-        .all(),
-    )
-    for (const r of row) {
-      const msg = info(r)
-      if (msg.role === "user" && msg.model) {
-        return msg.model
-      }
-    }
-    return undefined
-  })
-
   export const parts = fn(MessageID.zod, async (message_id) => {
     const rows = Database.use((db) =>
       db.select().from(PartTable).where(eq(PartTable.message_id, message_id)).orderBy(PartTable.id).all(),
