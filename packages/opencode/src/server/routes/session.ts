@@ -1131,6 +1131,9 @@ export const SessionRoutes = lazy(() =>
         const parent = c.req.valid("param").sessionID
         const body = c.req.valid("json")
 
+        // Detect Ralph loop (while loop with oc check) to disable provider timeout
+        const noTimeout = c.req.header("x-opencode-ralph-loop") === "true"
+
         await Session.get(parent)
 
         // Inherit model from parent session if not explicitly provided
@@ -1213,6 +1216,7 @@ export const SessionRoutes = lazy(() =>
               agent: body.agent,
               model,
               format: body.format ? { ...body.format, retryCount: 3 } : undefined,
+              noTimeout,
             })
             const out =
               body.format && msg.info.role === "assistant" && msg.info.structured !== undefined
@@ -1228,6 +1232,7 @@ export const SessionRoutes = lazy(() =>
                   parts: [{ type: "text", text: body.followUp.prompt }],
                   format: { ...body.followUp.format, retryCount: 1 },
                   model,
+                  noTimeout,
                 })
                 const structured = follow.info.role === "assistant" ? follow.info.structured : undefined
                 followOut =

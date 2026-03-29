@@ -34,6 +34,7 @@ export namespace LLM {
     tools: Record<string, Tool>
     retries?: number
     toolChoice?: "auto" | "required" | "none"
+    noTimeout?: boolean
   }
 
   export type Event = Awaited<ReturnType<typeof stream>>["fullStream"] extends AsyncIterable<infer T> ? T : never
@@ -286,6 +287,7 @@ export namespace LLM {
             }),
         ...input.model.headers,
         ...headers,
+        ...(input.noTimeout ? { "x-opencode-no-timeout": "true" } : {}),
       },
       maxRetries: input.retries ?? 0,
       messages,

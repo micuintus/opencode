@@ -50,6 +50,7 @@ const sid = process.env.OPENCODE_SESSION_ID
 const dir = process.env.OPENCODE_DIRECTORY ?? process.cwd()
 const msg = process.env.OPENCODE_MESSAGE_ID
 const quiet = process.env.OPENCODE_QUIET === "1"
+const isRalphLoop = process.env.OPENCODE_RALPH_LOOP === "1"
 
 // Security: Path validation to prevent path traversal attacks
 const sanitizePath = (path: string): string => {
@@ -110,9 +111,19 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
         }
         // Exec operations get no timeout (infinite) to support Ralph loops
 
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          "x-opencode-directory": encodeURIComponent(dir),
+        }
+
+        // Add Ralph loop header to disable provider timeout
+        if (isRalphLoop) {
+          headers["x-opencode-ralph-loop"] = "true"
+        }
+
         const fetchPromise = fetch(new URL(path, server).toString(), {
           method,
-          headers: { "Content-Type": "application/json", "x-opencode-directory": encodeURIComponent(dir) },
+          headers,
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,
         })

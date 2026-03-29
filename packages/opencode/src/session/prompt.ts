@@ -112,6 +112,7 @@ export namespace SessionPrompt {
     format: MessageV2.Format.optional(),
     system: z.string().optional(),
     variant: z.string().optional(),
+    noTimeout: z.boolean().optional(),
     parts: z.array(
       z.discriminatedUnion("type", [
         MessageV2.TextPart.omit({
@@ -185,7 +186,7 @@ export namespace SessionPrompt {
       return message
     }
 
-    return loop({ sessionID: input.sessionID })
+    return loop({ sessionID: input.sessionID, noTimeout: input.noTimeout })
   })
 
   export async function resolvePromptParts(template: string): Promise<PromptInput["parts"]> {
@@ -274,9 +275,10 @@ export namespace SessionPrompt {
   export const LoopInput = z.object({
     sessionID: SessionID.zod,
     resume_existing: z.boolean().optional(),
+    noTimeout: z.boolean().optional(),
   })
   export const loop = fn(LoopInput, async (input) => {
-    const { sessionID, resume_existing } = input
+    const { sessionID, resume_existing, noTimeout } = input
 
     const abort = resume_existing ? resume(sessionID) : start(sessionID)
     if (!abort) {
@@ -711,6 +713,7 @@ export namespace SessionPrompt {
         tools,
         model,
         toolChoice: format.type === "json_schema" ? "required" : undefined,
+        noTimeout,
       })
 
       // If structured output was captured, save it and exit immediately

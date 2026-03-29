@@ -99,6 +99,13 @@ export const BashTool = Tool.define("bash", async () => {
       })
       const hasLoop = tree.rootNode.descendantsOfType("while_statement").length > 0
       const timeout = usesOc && hasLoop ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
+
+      // Set environment variable to signal Ralph loop to oc binary
+      const isRalphLoop = usesOc && hasLoop
+      if (isRalphLoop) {
+        process.env.OPENCODE_RALPH_LOOP = "1"
+      }
+
       const directories = new Set<string>()
       if (!Instance.containsPath(cwd)) directories.add(cwd)
       const patterns = new Set<string>()
