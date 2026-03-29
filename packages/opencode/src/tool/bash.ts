@@ -20,7 +20,7 @@ import { Plugin } from "@/plugin"
 
 // Lazy import to avoid circular dependency (server → session → tool → server)
 let _server: typeof import("@/server/server") | undefined
-const getServer = () => (_server ??= require("@/server/server"))
+const getServer = async () => (_server ??= await import("@/server/server"))
 
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
@@ -188,7 +188,7 @@ export const BashTool = Tool.define("bash", async () => {
           OPENCODE_SESSION_ID: ctx.sessionID,
           OPENCODE_MESSAGE_ID: ctx.messageID,
           OPENCODE_AGENT: ctx.agent,
-          OPENCODE_SERVER_URL: getServer().Server.url?.toString() ?? "",
+          OPENCODE_SERVER_URL: (await getServer()).Server.url?.toString() ?? "",
           PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
