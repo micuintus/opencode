@@ -44,21 +44,20 @@ const quiet = process.env.OPENCODE_QUIET === "1"
 const noTimeout = process.env.OPENCODE_NO_TIMEOUT === "1"
 
 // Security: Path validation to prevent path traversal attacks
-const sanitizePath = (path: string): string => {
-  if (!path || path.trim() === "") {
+const sanitizePath = (p: string): string => {
+  if (!p || p.trim() === "") {
     throw new ValidationError({ message: "Invalid path: empty or null" })
   }
 
-  const normalizedPath = normalize(path)
-  const resolvedPath = resolve(dir, normalizedPath)
+  const resolved = resolve(dir, normalize(p))
 
   // Ensure the resolved path is within the working directory
-  const rel = relative(dir, resolvedPath)
+  const rel = relative(dir, resolved)
   if (rel.startsWith("../") || rel === "..") {
-    throw new ValidationError({ message: `Path traversal attempt blocked: ${path}` })
+    throw new ValidationError({ message: `Path traversal attempt blocked: ${p}` })
   }
 
-  return resolvedPath
+  return resolved
 }
 
 const marker = "\x00OC_FILE\x00:"
@@ -92,13 +91,12 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
       try: () => {
         // For exec operations (oc check, oc prompt), use no timeout to support Ralph loops
         // For tool operations, use shorter timeout since they should be fast
-        const isExecOperation = path.includes("/exec")
         const controller = new AbortController()
-        let timeoutId: Timer | undefined
+        let timer: Timer | undefined
 
-        if (!isExecOperation) {
+        if (!path.includes("/exec")) {
           // Tool operations get 60 second timeout
-          timeoutId = setTimeout(() => controller.abort(), 60_000)
+          timer = setTimeout(() => controller.abort(), 60_000)
         }
         // Exec operations get no timeout (infinite) to support Ralph loops
 
@@ -112,17 +110,15 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
           headers["x-opencode-no-timeout"] = "true"
         }
 
-        const fetchPromise = fetch(new URL(path, server).toString(), {
+        return fetch(new URL(path, server).toString(), {
           method,
           headers,
           body: body ? JSON.stringify(body) : undefined,
           signal: controller.signal,
           // Disable Bun's native TCP-level timeout for exec ops — see execTimeoutOpt
           ...execTimeoutOpt(path),
-        } as RequestInit)
-
-        return fetchPromise.finally(() => {
-          if (timeoutId) clearTimeout(timeoutId)
+        } as RequestInit).finally(() => {
+          if (timer) clearTimeout(timer)
         })
       },
       catch: (e) => new ApiError({ message: e instanceof Error ? e.message : String(e) }),
@@ -226,16 +222,15 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
       body.files = yield* Effect.all(
         paths.map((fp) =>
           Effect.gen(function* () {
-            const safePath = sanitizePath(fp)
+            const safe = sanitizePath(fp)
             const buf = yield* Effect.tryPromise({
-              try: () => Bun.file(safePath).arrayBuffer(),
+              try: () => Bun.file(safe).arrayBuffer(),
               catch: (e) =>
                 new ApiError({ message: `Failed to read file ${fp}: ${e instanceof Error ? e.message : String(e)}` }),
             })
 
             // Validate file size (max 10MB)
-            const maxSize = 10 * 1024 * 1024
-            if (buf.byteLength > maxSize) {
+            if (buf.byteLength > 10 * 1024 * 1024) {
               return yield* new ValidationError({
                 message: `oc prompt: file ${fp} too large (${Math.round(buf.byteLength / 1024 / 1024)}MB, max 10MB)`,
               })
@@ -244,20 +239,6 @@ const prompt = Effect.fn("oc.prompt")((rest: string[]) =>
             const base64 = Buffer.from(buf).toString("base64")
             const ext = fp.split(".").pop()?.toLowerCase() ?? ""
             const mime = mimes[ext] ?? "application/octet-stream"
-
-            // Validate MIME type for known extensions
-            const allowedTypes = [
-              "application/pdf",
-              "image/png",
-              "image/jpeg",
-              "text/plain",
-              "application/octet-stream",
-            ]
-            if (!allowedTypes.includes(mime)) {
-              return yield* new ValidationError({
-                message: `oc prompt: unsupported file type ${mime} for ${fp}`,
-              })
-            }
 
             return { filename: fp.split("/").pop() ?? fp, mime, url: `data:${mime};base64,${base64}` }
           }),
@@ -398,15 +379,13 @@ const program = Effect.gen(function* () {
           if (!tail[0]) {
             return yield* new ValidationError({ message: "oc tool grep: pattern required" })
           }
-          const grepPath = tail[1] ?? "."
-          args = { pattern: tail[0], path: sanitizePath(grepPath) }
+          args = { pattern: tail[0], path: sanitizePath(tail[1] ?? ".") }
           break
         case "glob":
           if (!tail[0]) {
             return yield* new ValidationError({ message: "oc tool glob: pattern required" })
           }
-          const globPath = tail[1] ? sanitizePath(tail[1]) : undefined
-          args = { pattern: tail[0], path: globPath }
+          args = { pattern: tail[0], path: tail[1] ? sanitizePath(tail[1]) : undefined }
           break
         case "bash": {
           const command = tail.join(" ")
@@ -472,14 +451,12 @@ const program = Effect.gen(function* () {
       const type = rest[0]
       const tail = rest.slice(1)
       if (!type) {
-        console.error("oc agent: usage: oc agent <type> <prompt>")
-        process.exit(1)
+        return yield* new ValidationError({ message: "oc agent: usage: oc agent <type> <prompt>" })
       }
       const input = yield* stdin()
       const text = input ? `${input}\n\n${tail.join(" ")}` : tail.join(" ")
       if (!text.trim()) {
-        console.error("oc agent: no prompt text")
-        process.exit(1)
+        return yield* new ValidationError({ message: "oc agent: no prompt text" })
       }
       log(`agent ${type} "${tail.join(" ").substring(0, 50)}"`)
       const body: ExecBody = { prompt: text, agent: type }
@@ -496,8 +473,7 @@ const program = Effect.gen(function* () {
         case "add": {
           const content = tail.join(" ")
           if (!content.trim()) {
-            console.error("oc todo add: no content")
-            process.exit(1)
+            return yield* new ValidationError({ message: "oc todo add: no content" })
           }
           log(`todo add "${content.substring(0, 50)}"`)
           const result = yield* api("POST", `/session/${sid}/todo`, { content, status: "pending" })
@@ -513,8 +489,7 @@ const program = Effect.gen(function* () {
         case "done": {
           const idx = parseInt(tail[0])
           if (isNaN(idx) || idx < 1) {
-            console.error("oc todo done: provide 1-based index")
-            process.exit(1)
+            return yield* new ValidationError({ message: "oc todo done: provide 1-based index" })
           }
           const response = yield* api("GET", `/session/${sid}/todo`)
           const parsed = yield* Effect.try({
@@ -522,8 +497,9 @@ const program = Effect.gen(function* () {
             catch: () => new ValidationError({ message: "oc todo done: invalid response from server" }),
           })
           if (idx > parsed.length) {
-            console.error(`oc todo done: index ${idx} out of range (max: ${parsed.length})`)
-            process.exit(1)
+            return yield* new ValidationError({
+              message: `oc todo done: index ${idx} out of range (max: ${parsed.length})`,
+            })
           }
           parsed[idx - 1].status = "completed"
           log(`todo done ${idx} ✓ ${parsed[idx - 1].content.substring(0, 40)}`)
@@ -537,8 +513,9 @@ const program = Effect.gen(function* () {
           break
         }
         default:
-          console.error(`oc todo: unknown '${sub}'. Usage: oc todo <add|list|done|clear>`)
-          process.exit(1)
+          return yield* new ValidationError({
+            message: `oc todo: unknown '${sub}'. Usage: oc todo <add|list|done|clear>`,
+          })
       }
       break
     }
@@ -546,8 +523,7 @@ const program = Effect.gen(function* () {
     case "status": {
       const message = rest.join(" ")
       if (!message.trim()) {
-        console.error("oc status: no message")
-        process.exit(1)
+        return yield* new ValidationError({ message: "oc status: no message" })
       }
       log(`status: ${message}`)
       const body: StatusBody = { message }

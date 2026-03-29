@@ -1110,7 +1110,7 @@ export const SessionRoutes = lazy(() =>
             .optional()
             .describe("File attachments (PDFs, images) for multimodal prompts"),
           format: z
-            .object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.any()) })
+            .object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.unknown()) })
             .optional()
             .describe("Force structured output via StructuredOutput tool (e.g. for oc check boolean)"),
           messageID: z.string().optional().describe("Parent message ID — creates visual ToolPart when present"),
@@ -1119,7 +1119,7 @@ export const SessionRoutes = lazy(() =>
               prompt: z
                 .string()
                 .describe("Follow-up prompt sent to the SAME child session after the main prompt completes"),
-              format: z.object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.any()) }),
+              format: z.object({ type: z.literal("json_schema"), schema: z.record(z.string(), z.unknown()) }),
             })
             .optional()
             .describe(
@@ -1167,7 +1167,7 @@ export const SessionRoutes = lazy(() =>
         const preview = body.prompt.substring(0, 80) + (body.prompt.length > 80 ? "..." : "")
         const title = body.system ? `oc prompt -s "${body.system}"` : "oc prompt"
 
-        const updatePart = (state: z.infer<typeof MessageV2.ToolState>) =>
+        const emit = (state: z.infer<typeof MessageV2.ToolState>) =>
           msgID && partID
             ? Session.updatePart({
                 id: partID,
@@ -1181,7 +1181,7 @@ export const SessionRoutes = lazy(() =>
               })
             : undefined
 
-        await updatePart({
+        await emit({
           status: "running",
           input: { prompt: preview, description: preview, subagent_type: "oc" },
           title,
@@ -1198,7 +1198,7 @@ export const SessionRoutes = lazy(() =>
               ? Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
                   if (event.properties.sessionID === child.id && event.properties.field === "text") {
                     accum += event.properties.delta
-                    updatePart({
+                    emit({
                       status: "running",
                       input: { prompt: preview },
                       title,
@@ -1234,7 +1234,7 @@ export const SessionRoutes = lazy(() =>
                 : ((msg.parts.findLast((p) => p.type === "text") as { type: "text"; text: string } | undefined)?.text ??
                   "")
 
-            let followOut = ""
+            let extra = ""
             if (body.followUp) {
               try {
                 const follow = await SessionPrompt.prompt({
@@ -1245,7 +1245,7 @@ export const SessionRoutes = lazy(() =>
                   noTimeout,
                 })
                 const structured = follow.info.role === "assistant" ? follow.info.structured : undefined
-                followOut =
+                extra =
                   structured !== undefined
                     ? `\n\x00OC_FOLLOWUP\x00:${JSON.stringify(structured)}`
                     : `\n\x00OC_FOLLOWUP\x00:${(follow.parts.findLast((p) => p.type === "text") as { type: "text"; text: string } | undefined)?.text ?? ""}`
@@ -1254,9 +1254,9 @@ export const SessionRoutes = lazy(() =>
               }
             }
 
-            const result = out + followOut
+            const result = out + extra
 
-            await updatePart({
+            await emit({
               status: "completed",
               input: { prompt: preview },
               output: result.substring(0, 2000),
@@ -1266,7 +1266,7 @@ export const SessionRoutes = lazy(() =>
             })
             await stream.write(result)
           } catch (error) {
-            await updatePart({
+            await emit({
               status: "error",
               input: { prompt: preview },
               error: error instanceof Error ? error.message : String(error),
@@ -1302,7 +1302,7 @@ export const SessionRoutes = lazy(() =>
         "json",
         z.object({
           name: z.string().describe("Tool name (e.g. read, edit, grep, glob)"),
-          args: z.record(z.string(), z.any()).describe("Tool arguments"),
+          args: z.record(z.string(), z.unknown()).describe("Tool arguments"),
           agent: z.string().optional().describe("Agent context for permissions"),
           messageID: z.string().optional().describe("Parent message ID — creates visual ToolParts when present"),
         }),
