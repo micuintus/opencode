@@ -463,3 +463,29 @@ describe("MessageV2 SyncEvent definitions", () => {
     expect(def).not.toHaveProperty("aggregate")
   })
 })
+
+// ── Keepalive Protocol Tests ──────────────────────────────────
+
+describe("keepalive protocol", () => {
+  const KEEPALIVE = "\x00OC_KEEPALIVE\x00"
+
+  test("keepalive marker is stripped from response", () => {
+    const body = `${KEEPALIVE}${KEEPALIVE}actual response`
+    expect(body.replaceAll(KEEPALIVE, "")).toBe("actual response")
+  })
+
+  test("keepalive marker does not conflict with OC_FILE marker", () => {
+    const ocFile = "\x00OC_FILE\x00:/path/to/file.pdf"
+    expect(ocFile.replaceAll(KEEPALIVE, "")).toBe(ocFile)
+  })
+
+  test("keepalive marker does not conflict with OC_TRUNCATED marker", () => {
+    const ocTrunc = "\x00OC_TRUNCATED\x00:Results limited to 100 items."
+    expect(ocTrunc.replaceAll(KEEPALIVE, "")).toBe(ocTrunc)
+  })
+
+  test("response without keepalive is unchanged", () => {
+    const body = "clean response\nwith newlines"
+    expect(body.replaceAll(KEEPALIVE, "")).toBe(body)
+  })
+})

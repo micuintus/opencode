@@ -135,7 +135,8 @@ const api = Effect.fn("oc.api")((method: string, path: string, body?: Record<str
     }
 
     return yield* Effect.tryPromise({
-      try: () => res.text(),
+      // Strip keepalive markers injected by the server to prevent HTTP idle timeouts.
+      try: () => res.text().then((t) => t.replaceAll("\x00OC_KEEPALIVE\x00", "")),
       catch: (e) => new ApiError({ message: e instanceof Error ? e.message : String(e) }),
     })
   }),
@@ -344,7 +345,7 @@ const program = Effect.gen(function* () {
           const ni = tail.indexOf("-n")
           let limit: number | undefined
           if (ni >= 0 && ni + 1 < tail.length) {
-            const parsed = parseInt(tail[ni + 1])
+            const parsed = parseInt(tail[ni + 1], 10)
             limit = Number.isNaN(parsed) ? undefined : parsed
           }
           args = { filePath: sanitizePath(tail[0]), limit }
@@ -489,7 +490,7 @@ const program = Effect.gen(function* () {
           break
         }
         case "done": {
-          const idx = parseInt(tail[0])
+          const idx = parseInt(tail[0], 10)
           if (isNaN(idx) || idx < 1) {
             return yield* new ValidationError({ message: "oc todo done: provide 1-based index" })
           }
