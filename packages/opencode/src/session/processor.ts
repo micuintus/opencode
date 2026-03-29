@@ -62,8 +62,6 @@ export namespace SessionProcessor {
     reasoningMap: Record<string, MessageV2.ReasoningPart>
   }
 
-  type StreamEvent = Event
-
   export class Service extends ServiceMap.Service<Service, Interface>()("@opencode/SessionProcessor") {}
 
   export const layer: Layer.Layer<
@@ -112,7 +110,7 @@ export namespace SessionProcessor {
             aborted: input.abort.aborted,
           })
 
-        const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: StreamEvent) {
+        const handleEvent = Effect.fn("SessionProcessor.handleEvent")(function* (value: Event) {
           switch (value.type) {
             case "start":
               yield* status.set(ctx.sessionID, { type: "busy" })

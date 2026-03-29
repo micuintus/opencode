@@ -3,7 +3,7 @@
 // Deterministic tool calls use the shell fast-path (bin/oc); this binary
 // handles complex operations: prompt, agent, todo, status, and tool fallback.
 
-import { Effect, Schema } from "effect"
+import { Effect, Exit, Cause, Option, Schema } from "effect"
 import { resolve, normalize, relative } from "path"
 
 class ServerError extends Schema.TaggedErrorClass<ServerError>()("ServerError", { message: Schema.String }) {}
@@ -395,7 +395,7 @@ const program = Effect.gen(function* () {
             return yield* new ValidationError({ message: "oc tool bash: command required" })
           }
           // Basic command injection protection - block dangerous patterns
-          const dangerous = [";", "&&", "||", "|", ">", ">>", "<", "$(", "`", "&"]
+          const dangerous = [";", "|", ">", "<", "$(", "`", "&"]
           if (dangerous.some((pattern) => command.includes(pattern))) {
             console.warn("Warning: Command contains potentially dangerous operators. Use with caution.")
           }
@@ -592,8 +592,6 @@ STATE:
       process.exit(1)
   }
 })
-
-import { Exit, Cause, Option } from "effect"
 
 // Exported for testing: returns { timeout: false } for exec paths so Bun's native
 // TCP timeout is disabled on long-running oc check / oc prompt calls.
