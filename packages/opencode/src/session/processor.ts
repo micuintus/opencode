@@ -183,11 +183,11 @@ export namespace SessionProcessor {
               })) as MessageV2.ToolPart
 
               const parts = yield* Effect.promise(() => MessageV2.parts(ctx.assistantMessage.id))
-              const recentParts = parts.slice(-DOOM_LOOP_THRESHOLD)
+              const recent = parts.slice(-DOOM_LOOP_THRESHOLD)
 
               if (
-                recentParts.length !== DOOM_LOOP_THRESHOLD ||
-                !recentParts.every(
+                recent.length !== DOOM_LOOP_THRESHOLD ||
+                !recent.every(
                   (part) =>
                     part.type === "tool" &&
                     part.tool === value.toolName &&

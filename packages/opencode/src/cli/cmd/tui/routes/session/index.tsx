@@ -334,7 +334,7 @@ export function Session() {
     if (children().length === 1) return
 
     const sessions = children().filter((x) => !!x.parentID)
-    let next = sessions.findIndex((x) => x.id === session()?.id) - direction
+    let next = sessions.findIndex((x) => x.id === session()?.id) + direction
 
     if (next >= sessions.length) next = 0
     if (next < 0) next = sessions.length - 1

@@ -91,13 +91,12 @@ export const BashTool = Tool.define("bash", async () => {
       if (!tree) {
         throw new Error("Failed to parse command")
       }
-      const isOc = (text: string) => /^(oc|\.\/oc)$/.test(text)
-      const usesOc = tree.rootNode.descendantsOfType("command").some((n) => {
+      const hasOc = tree.rootNode.descendantsOfType("command").some((n) => {
         if (!n) return false
         const name = n.childForFieldName("name") ?? n.firstChild
-        return name !== null && isOc(name.text)
+        return name !== null && /^(oc|\.\/oc)$/.test(name.text)
       })
-      const timeout = usesOc ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
+      const timeout = hasOc ? 0 : (params.timeout ?? DEFAULT_TIMEOUT)
 
       const directories = new Set<string>()
       if (!Instance.containsPath(cwd)) directories.add(cwd)
@@ -189,7 +188,7 @@ export const BashTool = Tool.define("bash", async () => {
           OPENCODE_MESSAGE_ID: ctx.messageID,
           OPENCODE_AGENT: ctx.agent,
           OPENCODE_SERVER_URL: (await getServer()).Server.url?.toString() ?? "",
-          ...(usesOc ? { OPENCODE_NO_TIMEOUT: "1" } : {}),
+          ...(hasOc ? { OPENCODE_NO_TIMEOUT: "1" } : {}),
           PATH: `${path.resolve(fileURLToPath(import.meta.url), "../../../bin")}${path.delimiter}${process.env.PATH ?? ""}`,
         },
         stdio: ["ignore", "pipe", "pipe"],
@@ -288,7 +287,7 @@ export const BashTool = Tool.define("bash", async () => {
           exit: proc.exitCode,
           description: params.description,
           // oc calls can run for many iterations — don't truncate their output
-          ...(usesOc && { noTruncate: true }),
+          ...(hasOc && { noTruncate: true }),
         },
         output,
       }

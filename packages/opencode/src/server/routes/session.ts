@@ -1161,21 +1161,21 @@ export const SessionRoutes = lazy(() =>
         c.req.raw.signal.addEventListener("abort", cleanup)
 
         // Create task ToolPart for subagent visibility (opt-in via messageID)
-        const msgID = body.messageID as MessageID | undefined
-        const partID = msgID ? PartID.ascending() : undefined
+        const mid = body.messageID as MessageID | undefined
+        const pid = mid ? PartID.ascending() : undefined
         const t0 = Date.now()
         const preview = body.prompt.substring(0, 80) + (body.prompt.length > 80 ? "..." : "")
         const title = body.system ? `oc prompt -s "${body.system}"` : "oc prompt"
 
         const emit = (state: z.infer<typeof MessageV2.ToolState>) =>
-          msgID && partID
+          mid && pid
             ? Session.updatePart({
-                id: partID,
-                messageID: msgID,
+                id: pid,
+                messageID: mid,
                 sessionID: parent,
                 type: "tool",
                 tool: "task",
-                callID: partID,
+                callID: pid,
                 metadata: { oc: true },
                 state,
               })
@@ -1194,7 +1194,7 @@ export const SessionRoutes = lazy(() =>
         return stream(c, async (stream) => {
           let accum = ""
           const unsub =
-            msgID && partID
+            mid && pid
               ? Bus.subscribe(MessageV2.Event.PartDelta, (event) => {
                   if (event.properties.sessionID === child.id && event.properties.field === "text") {
                     accum += event.properties.delta
@@ -1318,19 +1318,19 @@ export const SessionRoutes = lazy(() =>
         const agent = body.agent ?? "build"
         const ag = await Agent.get(agent)
 
-        const msgID = body.messageID as MessageID | undefined
-        const partID = msgID ? PartID.ascending() : undefined
+        const mid = body.messageID as MessageID | undefined
+        const pid = mid ? PartID.ascending() : undefined
         const t0 = Date.now()
 
         const emit = (state: z.infer<typeof MessageV2.ToolState>) =>
-          msgID && partID
+          mid && pid
             ? Session.updatePart({
-                id: partID,
-                messageID: msgID,
+                id: pid,
+                messageID: mid,
                 sessionID: param.sessionID,
                 type: "tool",
                 tool: body.name,
-                callID: partID,
+                callID: pid,
                 metadata: { oc: true },
                 state,
               })
@@ -1340,8 +1340,8 @@ export const SessionRoutes = lazy(() =>
 
         const ctx = {
           sessionID: param.sessionID,
-          messageID: msgID ?? MessageID.ascending(),
-          callID: partID ?? PartID.ascending(),
+          messageID: mid ?? MessageID.ascending(),
+          callID: pid ?? PartID.ascending(),
           agent,
           abort: c.req.raw.signal,
           messages: [] as MessageV2.WithParts[],
@@ -1413,16 +1413,16 @@ export const SessionRoutes = lazy(() =>
       async (c) => {
         const sessionID = c.req.valid("param").sessionID
         const body = c.req.valid("json")
-        const msgID = body.messageID as MessageID | undefined
-        if (msgID && body.message) {
-          const partID = PartID.ascending()
+        const mid = body.messageID as MessageID | undefined
+        if (mid && body.message) {
+          const pid = PartID.ascending()
           await Session.updatePart({
-            id: partID,
-            messageID: msgID,
+            id: pid,
+            messageID: mid,
             sessionID,
             type: "tool",
             tool: "status",
-            callID: partID,
+            callID: pid,
             metadata: { oc: true },
             state: {
               status: "completed",
