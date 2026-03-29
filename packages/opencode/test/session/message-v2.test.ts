@@ -957,7 +957,7 @@ describe("session.message-v2.fromError", () => {
 })
 
 describe("session.message-v2.toModelMessage — oc filter", () => {
-  test("filters out tool parts with metadata.oc = true", () => {
+  test("filters out tool parts with metadata.oc = true", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -1021,7 +1021,7 @@ describe("session.message-v2.toModelMessage — oc filter", () => {
       },
     ]
 
-    const result = MessageV2.toModelMessages(input, model)
+    const result = await MessageV2.toModelMessages(input, model)
     // user + assistant(text+tool-call) + tool-result = 3 messages
     expect(result.length).toBe(3)
 
@@ -1039,7 +1039,7 @@ describe("session.message-v2.toModelMessage — oc filter", () => {
     expect(results[0].toolCallId).toBe("call-normal")
   })
 
-  test("does NOT filter tool parts without metadata.oc", () => {
+  test("does NOT filter tool parts without metadata.oc", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -1070,7 +1070,7 @@ describe("session.message-v2.toModelMessage — oc filter", () => {
       },
     ]
 
-    const result = MessageV2.toModelMessages(input, model)
+    const result = await MessageV2.toModelMessages(input, model)
     // user + assistant(tool-call) + tool-result = 3 messages
     expect(result.length).toBe(3)
     const toolCalls = (result[1].content as any[]).filter((p: any) => p.type === "tool-call")
@@ -1079,7 +1079,7 @@ describe("session.message-v2.toModelMessage — oc filter", () => {
     expect(toolCalls[0].toolCallId).toBe("call-1")
   })
 
-  test("handles mixed oc and non-oc parts correctly", () => {
+  test("handles mixed oc and non-oc parts correctly", async () => {
     const userID = "m-user"
     const assistantID = "m-assistant"
 
@@ -1134,7 +1134,7 @@ describe("session.message-v2.toModelMessage — oc filter", () => {
       },
     ]
 
-    const result = MessageV2.toModelMessages(input, model)
+    const result = await MessageV2.toModelMessages(input, model)
     // assistant message should only have the one normal tool-call
     const toolCalls = (result[1].content as any[]).filter((p: any) => p.type === "tool-call")
     expect(toolCalls.length).toBe(1)
