@@ -52,11 +52,7 @@ export namespace LLM {
         stream(input) {
           return Stream.unwrap(
             Effect.promise(() => LLM.stream(input)).pipe(
-              Effect.map((result) =>
-                Stream.fromAsyncIterable(result.fullStream, (err) => err).pipe(
-                  Stream.mapEffect((event) => Effect.succeed(event)),
-                ),
-              ),
+              Effect.map((result) => Stream.fromAsyncIterable(result.fullStream, (err) => err)),
             ),
           )
         },
